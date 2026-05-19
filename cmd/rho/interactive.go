@@ -195,6 +195,9 @@ func (im *InteractiveMode) Run() error {
 	})
 
 	im.tui.Start()
+
+	// Block until TUI stops (signal handler calls os.Exit)
+	<-make(chan struct{})
 	return nil
 }
 
