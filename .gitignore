@@ -1,0 +1,37 @@
+# Go
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+*.test
+*.out
+*.o
+*.a
+*.test
+/vendor/
+
+# Binary
+/rho
+/rho.exe
+/rho-*
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+.DS_Store
+
+# Temp
+/tmp/
+*.tmp
+
+# Pi source (reference, not built)
+/pi/node_modules/
+/pi/dist/
+
+# Extension plugins built locally
+*.so
+examples/extensions/*.so
