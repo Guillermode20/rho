@@ -116,6 +116,11 @@ func (pt *ProcessTerminal) Start(onInput func(string), onResize func()) {
 	signal.Notify(sigwinch, syscall.SIGWINCH)
 
 	go func() {
+		defer func() {
+			if r := recover(); r != nil {
+				// Don't re-panic in a background goroutine
+			}
+		}()
 		for {
 			select {
 			case <-sigwinch:
@@ -143,6 +148,11 @@ func (pt *ProcessTerminal) Start(onInput func(string), onResize func()) {
 }
 
 func (pt *ProcessTerminal) queryAndEnableKittyProtocol() {
+	defer func() {
+		if r := recover(); r != nil {
+			// Don't re-panic in a background goroutine
+		}
+	}()
 	// Send Kitty protocol query
 	os.Stdout.WriteString("\x1b[?u")
 	SetKittyProtocolActive(false)
@@ -159,6 +169,11 @@ func (pt *ProcessTerminal) queryAndEnableKittyProtocol() {
 }
 
 func (pt *ProcessTerminal) readStdin() {
+	defer func() {
+		if r := recover(); r != nil {
+			// Don't re-panic in a background goroutine
+		}
+	}()
 	buf := make([]byte, 4096)
 	for {
 		n, err := os.Stdin.Read(buf)
@@ -309,17 +324,22 @@ func (pt *ProcessTerminal) SetProgress(active bool) {
 			t := time.NewTimer(terminalProgressKeepaliveMs)
 			pt.progressInterval = t
 			go func() {
-				for {
-					select {
-					case <-t.C:
-						os.Stdout.WriteString(terminalProgressActiveSeq)
-						t.Reset(terminalProgressKeepaliveMs)
-					case <-pt.progressDone:
-						t.Stop()
-						return
-					}
+			defer func() {
+				if r := recover(); r != nil {
+					// Don't re-panic in a background goroutine
 				}
 			}()
+			for {
+				select {
+				case <-t.C:
+					os.Stdout.WriteString(terminalProgressActiveSeq)
+					t.Reset(terminalProgressKeepaliveMs)
+				case <-pt.progressDone:
+					t.Stop()
+					return
+				}
+			}
+		}()
 		}
 		pt.mu.Unlock()
 	} else {

@@ -164,6 +164,8 @@ func NewEditor(opts EditorOptions) *Editor {
 }
 
 func (e *Editor) GetText() string {
+	e.mu.Lock()
+	defer e.mu.Unlock()
 	return strings.Join(e.lines, "\n")
 }
 
@@ -185,11 +187,31 @@ func (e *Editor) SetText(text string) {
 	}
 }
 
-func (e *Editor) SetPlaceholder(p string) { e.placeholder = p }
-func (e *Editor) SetOnSubmit(fn func(string)) { e.onSubmit = fn }
-func (e *Editor) SetOnChange(fn func(string)) { e.onChange = fn }
-func (e *Editor) SetFocused(f bool) { e.focused = f }
-func (e *Editor) Focused() bool { return e.focused }
+func (e *Editor) SetPlaceholder(p string) {
+	e.mu.Lock()
+	e.placeholder = p
+	e.mu.Unlock()
+}
+func (e *Editor) SetOnSubmit(fn func(string)) {
+	e.mu.Lock()
+	e.onSubmit = fn
+	e.mu.Unlock()
+}
+func (e *Editor) SetOnChange(fn func(string)) {
+	e.mu.Lock()
+	e.onChange = fn
+	e.mu.Unlock()
+}
+func (e *Editor) SetFocused(f bool) {
+	e.mu.Lock()
+	e.focused = f
+	e.mu.Unlock()
+}
+func (e *Editor) Focused() bool {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	return e.focused
+}
 
 func (e *Editor) Render(width int) []string {
 	e.mu.Lock()

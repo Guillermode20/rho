@@ -51,6 +51,11 @@ func (l *Loader) Start() {
 	l.mu.Unlock()
 
 	go func() {
+		defer func() {
+			if r := recover(); r != nil {
+				// Don't re-panic in a background goroutine
+			}
+		}()
 		for {
 			select {
 			case <-l.ticker.C:
@@ -77,6 +82,8 @@ func (l *Loader) Stop() {
 		if l.ticker != nil {
 			l.ticker.Stop()
 		}
+		close(l.stopChan)
+		l.stopChan = make(chan struct{})
 	}
 }
 

@@ -322,45 +322,56 @@ func (t *TUI) showOverlay(component Component, options *OverlayOptions) OverlayH
 		},
 		SetHidden: func(hidden bool) {
 			t.mu.Lock()
-			if entry.hidden == hidden {
-				t.mu.Unlock()
-				return
-			}
-			entry.hidden = hidden
-			if hidden {
-				if t.focusedComponent == component {
-					topVisible := t.getTopmostVisibleOverlay()
-					if topVisible != nil {
-						t.SetFocus(topVisible.component)
-					} else {
-						t.SetFocus(entry.preFocus)
+			for i := range t.overlayStack {
+				if t.overlayStack[i].component == component {
+					if t.overlayStack[i].hidden == hidden {
+						t.mu.Unlock()
+						return
 					}
-				}
-			} else {
-				if (options == nil || !options.NonCapturing) && t.isOverlayVisible(&entry) {
-					t.focusOrderCounter++
-					entry.focusOrder = t.focusOrderCounter
-					t.SetFocus(component)
+					t.overlayStack[i].hidden = hidden
+					if hidden {
+						if t.focusedComponent == component {
+							topVisible := t.getTopmostVisibleOverlay()
+							if topVisible != nil {
+								t.SetFocus(topVisible.component)
+							} else {
+								t.SetFocus(entry.preFocus)
+							}
+						}
+					} else {
+						if (options == nil || !options.NonCapturing) && t.isOverlayVisible(&t.overlayStack[i]) {
+							t.focusOrderCounter++
+							t.overlayStack[i].focusOrder = t.focusOrderCounter
+							t.SetFocus(component)
+						}
+					}
+					t.mu.Unlock()
+					t.RequestRender(false)
+					return
 				}
 			}
 			t.mu.Unlock()
-			t.RequestRender(false)
 		},
 		IsHidden: func() bool {
 			t.mu.Lock()
 			defer t.mu.Unlock()
-			return entry.hidden
+			for _, e := range t.overlayStack {
+				if e.component == component {
+					return e.hidden
+				}
+			}
+			return true
 		},
 		Focus: func() {
 			t.mu.Lock()
-			found := false
-			for _, e := range t.overlayStack {
+			idx := -1
+			for i, e := range t.overlayStack {
 				if e.component == component {
-					found = true
+					idx = i
 					break
 				}
 			}
-			if !found || !t.isOverlayVisible(&entry) {
+			if idx < 0 || !t.isOverlayVisible(&t.overlayStack[idx]) {
 				t.mu.Unlock()
 				return
 			}
@@ -368,7 +379,7 @@ func (t *TUI) showOverlay(component Component, options *OverlayOptions) OverlayH
 				t.SetFocus(component)
 			}
 			t.focusOrderCounter++
-			entry.focusOrder = t.focusOrderCounter
+			t.overlayStack[idx].focusOrder = t.focusOrderCounter
 			t.mu.Unlock()
 			t.RequestRender(false)
 		},
@@ -532,6 +543,11 @@ func (t *TUI) RequestRender(force bool) {
 		}
 		t.renderRequested = true
 		go func() {
+			defer func() {
+				if r := recover(); r != nil {
+					// Don't re-panic in a background goroutine
+				}
+			}()
 			time.Sleep(time.Millisecond)
 			t.mu.Lock()
 			if t.stopped || !t.renderRequested {
@@ -558,6 +574,11 @@ func (t *TUI) RequestRender(force bool) {
 }
 
 func (t *TUI) scheduleRender() {
+	defer func() {
+		if r := recover(); r != nil {
+			// Don't re-panic in a background goroutine
+		}
+	}()
 	t.mu.Lock()
 	if t.stopped || t.renderTimer != nil || !t.renderRequested {
 		t.mu.Unlock()
@@ -590,8 +611,17 @@ func (t *TUI) scheduleRender() {
 }
 
 func (t *TUI) handleInput(data string) {
+	t.mu.Lock()
+	listeners := make([]InputListener, len(t.inputListeners))
+	copy(listeners, t.inputListeners)
+	overlayStack := make([]overlayEntry, len(t.overlayStack))
+	copy(overlayStack, t.overlayStack)
+	focused := t.focusedComponent
+	onDebug := t.onDebug
+	t.mu.Unlock()
+
 	// Check input listeners
-	for _, listener := range t.inputListeners {
+	for _, listener := range listeners {
 		result := listener(data)
 		if result != nil && result.Consume {
 			return
@@ -610,15 +640,16 @@ func (t *TUI) handleInput(data string) {
 	}
 
 	// Global debug key (Shift+Ctrl+D)
-	if MatchesKey(data, "shift+ctrl+d") && t.onDebug != nil {
-		t.onDebug()
+	if MatchesKey(data, "shift+ctrl+d") && onDebug != nil {
+		onDebug()
 		return
 	}
 
 	// Check if focused overlay is still visible
+	t.mu.Lock()
 	for i := len(t.overlayStack) - 1; i >= 0; i-- {
 		o := &t.overlayStack[i]
-		if o.component == t.focusedComponent && !t.isOverlayVisible(o) {
+		if o.component == focused && !t.isOverlayVisible(o) {
 			topVisible := t.getTopmostVisibleOverlay()
 			if topVisible != nil {
 				t.SetFocus(topVisible.component)
@@ -628,13 +659,16 @@ func (t *TUI) handleInput(data string) {
 			break
 		}
 	}
+	// Re-read focused component (may have changed during SetFocus calls above)
+	focused = t.focusedComponent
+	t.mu.Unlock()
 
 	// Pass input to focused component
-	if t.focusedComponent != nil {
-		if IsKeyRelease(data) && !t.focusedComponent.WantsKeyRelease() {
+	if focused != nil {
+		if IsKeyRelease(data) && !focused.WantsKeyRelease() {
 			return
 		}
-		t.focusedComponent.HandleInput(data)
+		focused.HandleInput(data)
 		t.RequestRender(false)
 	}
 }
