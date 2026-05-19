@@ -78,13 +78,24 @@ type ProcessTerminal struct {
 	oldState         *term.State
 	writeLogPath     string
 	writeLogFile     io.WriteCloser
+	stdinBuf         *StdinBuffer
 }
 
 // NewProcessTerminal creates a new ProcessTerminal.
 func NewProcessTerminal() *ProcessTerminal {
-	return &ProcessTerminal{
+	pt := &ProcessTerminal{
 		stopChan: make(chan struct{}),
 	}
+	pt.stdinBuf = NewStdinBuffer(50 * time.Millisecond)
+	pt.stdinBuf.OnData(func(data string) {
+		pt.mu.Lock()
+		ih := pt.inputHandler
+		pt.mu.Unlock()
+		if ih != nil {
+			ih(data)
+		}
+	})
+	return pt
 }
 
 func (pt *ProcessTerminal) KittyProtocolActive() bool {
@@ -191,7 +202,7 @@ func (pt *ProcessTerminal) readStdin() {
 
 		data := string(buf[:n])
 
-		// Check for Kitty protocol response
+		// Check for Kitty protocol response (before stdin buffer so it's consumed atomically)
 		if !pt.kittyActive && kittyResponsePattern.MatchString(data) {
 			pt.mu.Lock()
 			pt.kittyActive = true
@@ -204,12 +215,8 @@ func (pt *ProcessTerminal) readStdin() {
 			continue
 		}
 
-		pt.mu.Lock()
-		ih := pt.inputHandler
-		pt.mu.Unlock()
-		if ih != nil {
-			ih(data)
-		}
+		// Feed through stdin buffer which splits into individual sequences
+		pt.stdinBuf.Process(data)
 	}
 }
 
