@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"plugin"
 	"sort"
 	"strings"
 
@@ -61,6 +60,11 @@ func LoadExtensions(dirs []string, runtime *Runtime) *LoadExtensionsResult {
 			seen[name] = true
 
 			extDir := filepath.Join(dir, name)
+			if _, err := os.Stat(filepath.Join(extDir, ".disabled")); err == nil {
+				result.Skipped = append(result.Skipped, name)
+				continue
+			}
+
 			if err := LoadExtensionFromDir(extDir, runtime, dummyUI); err != nil {
 				result.Errors = append(result.Errors, fmt.Sprintf("extension %s: %v", name, err))
 				continue
@@ -69,23 +73,7 @@ func LoadExtensions(dirs []string, runtime *Runtime) *LoadExtensionsResult {
 			result.Loaded = append(result.Loaded, name)
 		}
 
-		// Also look for .so plugin files for backward compatibility
-		files, err := filepath.Glob(filepath.Join(dir, "*.so"))
-		if err == nil {
-			for _, f := range files {
-				name := strings.TrimSuffix(filepath.Base(f), ".so")
-				if seen[name] {
-					continue
-				}
-				seen[name] = true
 
-				if err := loadGoPlugin(f, runtime); err != nil {
-					result.Errors = append(result.Errors, fmt.Sprintf("plugin %s: %v", name, err))
-					continue
-				}
-				result.Loaded = append(result.Loaded, name)
-			}
-		}
 	}
 
 	sort.Strings(result.Loaded)
@@ -260,7 +248,7 @@ func LoadExtensionFromDir(dir string, runtime *Runtime, ui ExtensionUIContext) e
 				if err != nil {
 					return nil, err
 				}
-				if resp == nil || resp.Result == nil {
+				if resp == nil || resp.Result == nil || isJSONString(resp.Result) {
 					return nil, nil
 				}
 				var res []agent.AgentMessage
@@ -278,7 +266,7 @@ func LoadExtensionFromDir(dir string, runtime *Runtime, ui ExtensionUIContext) e
 				if err != nil {
 					return nil, err
 				}
-				if resp == nil || resp.Result == nil {
+				if resp == nil || resp.Result == nil || isJSONString(resp.Result) {
 					return nil, nil
 				}
 				var res interface{}
@@ -310,7 +298,7 @@ func LoadExtensionFromDir(dir string, runtime *Runtime, ui ExtensionUIContext) e
 				if err != nil {
 					return nil, err
 				}
-				if resp == nil || resp.Result == nil {
+				if resp == nil || resp.Result == nil || isJSONString(resp.Result) {
 					return nil, nil
 				}
 				var res InputEventResult
@@ -331,7 +319,7 @@ func LoadExtensionFromDir(dir string, runtime *Runtime, ui ExtensionUIContext) e
 				if err != nil {
 					return nil, err
 				}
-				if resp == nil || resp.Result == nil {
+				if resp == nil || resp.Result == nil || isJSONString(resp.Result) {
 					return nil, nil
 				}
 				var res ToolCallEventResult
@@ -461,26 +449,7 @@ func LoadExtensionFromDir(dir string, runtime *Runtime, ui ExtensionUIContext) e
 	return nil
 }
 
-// loadGoPlugin loads a Go plugin (.so) that exports RegisterExtension.
-func loadGoPlugin(soPath string, runtime *Runtime) error {
-	p, err := plugin.Open(soPath)
-	if err != nil {
-		return fmt.Errorf("cannot open plugin: %w", err)
-	}
 
-	sym, err := p.Lookup("RegisterExtension")
-	if err != nil {
-		return fmt.Errorf("plugin has no RegisterExtension symbol: %w", err)
-	}
-
-	registerFn, ok := sym.(func(*Runtime))
-	if !ok {
-		return fmt.Errorf("RegisterExtension has wrong signature")
-	}
-
-	registerFn(runtime)
-	return nil
-}
 
 // BuiltinExtensions returns the built-in extensions that ship with rho.
 func BuiltinExtensions(runtime *Runtime) {
@@ -532,6 +501,12 @@ func RegisterExtensionFromConfig(runtime *Runtime, name string, cfg map[string]i
 
 	runtime.Register(ext)
 	return nil
+}
+
+// isJSONString returns true when the raw JSON message is a string value (starts with ").
+// Used to distinguish pass-through "ok" responses from structured data in lifecycle events.
+func isJSONString(raw json.RawMessage) bool {
+	return len(raw) > 0 && raw[0] == '"'
 }
 
 func loadPromptsFromDir(dir string) []string {

@@ -106,13 +106,14 @@ func main() {
 		return
 	}
 
-	// Build runtime config
+	// Build runtime config — include extensions from ~/.rho/extensions/
 	cfg := &RuntimeConfig{
 		Model:        model,
 		SystemPrompt: *systemPrompt,
 		APIKey:       *apiKey,
 		Provider:     model.Provider,
 		CWD:          workDir,
+		ExtDirs:      []string{codecore.GetExtensionsDir()},
 		AuthStorage:  authStorage,
 		OAuthStore:   oauthStore,
 		Settings:     settingsManager,

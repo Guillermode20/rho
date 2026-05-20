@@ -296,11 +296,11 @@ func TestInteractiveLoginWithoutArgsOpensAuthTypeSelector(t *testing.T) {
 
 	im.handleSubmit("/login")
 
-	if im.ui.selectorTitle != "Login method" {
-		t.Fatalf("selector title = %q, want Login method", im.ui.selectorTitle)
+	if im.ui.modal.title != "Login method" {
+		t.Fatalf("selector title = %q, want Login method", im.ui.modal.title)
 	}
-	if !autocompleteHasValue(im.ui.selectorItems, "api-key") || !autocompleteHasValue(im.ui.selectorItems, "oauth") {
-		t.Fatalf("auth type selector missing expected options: %#v", im.ui.selectorItems)
+	if !autocompleteHasValue(im.ui.modal.items, "api-key") || !autocompleteHasValue(im.ui.modal.items, "oauth") {
+		t.Fatalf("auth type selector missing expected options: %#v", im.ui.modal.items)
 	}
 }
 
@@ -314,13 +314,13 @@ func TestInteractiveLoginApiKeyMethodOpensProviderSelector(t *testing.T) {
 	})
 
 	im.handleSubmit("/login")
-	im.ui.applySelector()
+	im.ui.Update(tea.KeyMsg{Type: tea.KeyEnter})
 
-	if im.ui.selectorTitle != "Login provider" {
-		t.Fatalf("selector title = %q, want Login provider", im.ui.selectorTitle)
+	if im.ui.modal.title != "Login provider" {
+		t.Fatalf("selector title = %q, want Login provider", im.ui.modal.title)
 	}
-	if !autocompleteHasValue(im.ui.selectorItems, "anthropic") {
-		t.Fatalf("provider selector missing anthropic: %#v", im.ui.selectorItems)
+	if !autocompleteHasValue(im.ui.modal.items, "anthropic") {
+		t.Fatalf("provider selector missing anthropic: %#v", im.ui.modal.items)
 	}
 }
 
@@ -334,14 +334,14 @@ func TestInteractiveLoginOAuthMethodOpensOAuthProviderSelector(t *testing.T) {
 	})
 
 	im.handleSubmit("/login")
-	im.ui.selectorIdx = 1
-	im.ui.applySelector()
+	im.ui.modal.selIdx = 1
+	im.ui.Update(tea.KeyMsg{Type: tea.KeyEnter})
 
-	if im.ui.selectorTitle != "OAuth provider" {
-		t.Fatalf("selector title = %q, want OAuth provider", im.ui.selectorTitle)
+	if im.ui.modal.title != "OAuth provider" {
+		t.Fatalf("selector title = %q, want OAuth provider", im.ui.modal.title)
 	}
-	if !autocompleteHasValue(im.ui.selectorItems, "anthropic") {
-		t.Fatalf("oauth selector missing anthropic: %#v", im.ui.selectorItems)
+	if !autocompleteHasValue(im.ui.modal.items, "anthropic") {
+		t.Fatalf("oauth selector missing anthropic: %#v", im.ui.modal.items)
 	}
 }
 
@@ -380,10 +380,16 @@ func TestInteractiveOAuthManualCodeStoresCredentials(t *testing.T) {
 	})
 
 	im.startOAuthLogin(ai.OAuthAnthropic)
-	if im.ui.promptTitle != "OAuth callback or code" {
-		t.Fatalf("prompt title = %q, want OAuth callback or code", im.ui.promptTitle)
+	if im.ui.modal == nil || im.ui.modal.title != "OAuth callback or code" {
+		title := ""
+		if im.ui.modal != nil {
+			title = im.ui.modal.title
+		}
+		t.Fatalf("modal title = %q, want OAuth callback or code", title)
 	}
-	im.ui.onPromptSubmit("http://localhost:9876/callback?code=manual-code")
+	// Simulate submitting the OAuth code via modal prompt
+	im.ui.modal.value = []rune("http://localhost:9876/callback?code=manual-code")
+	im.ui.Update(tea.KeyMsg{Type: tea.KeyEnter})
 
 	deadline := time.Now().Add(time.Second)
 	for {
@@ -404,7 +410,7 @@ func TestInteractiveOAuthManualCodeStoresCredentials(t *testing.T) {
 func TestChatModelSelectorFiltersAndSelects(t *testing.T) {
 	model := newChatModel("rho")
 	var selected string
-	model.OpenSelector("Select model", []autocompleteItem{
+	model.OpenModalSelector("Select model", []autocompleteItem{
 		{Value: "anthropic/claude-sonnet-4-20250514", Label: "claude-sonnet-4-20250514", Description: "anthropic"},
 		{Value: "openai/gpt-4o", Label: "gpt-4o", Description: "openai"},
 	}, func(item autocompleteItem) {
@@ -412,11 +418,11 @@ func TestChatModelSelectorFiltersAndSelects(t *testing.T) {
 	}, nil)
 
 	model.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("gpt")})
-	if len(model.selectorItems) != 1 {
-		t.Fatalf("filtered selector count = %d, want 1", len(model.selectorItems))
+	if len(model.modal.items) != 1 {
+		t.Fatalf("filtered selector count = %d, want 1", len(model.modal.items))
 	}
-	if model.selectorItems[0].Value != "openai/gpt-4o" {
-		t.Fatalf("filtered selector item = %q, want openai/gpt-4o", model.selectorItems[0].Value)
+	if model.modal.items[0].Value != "openai/gpt-4o" {
+		t.Fatalf("filtered selector item = %q, want openai/gpt-4o", model.modal.items[0].Value)
 	}
 
 	model.Update(tea.KeyMsg{Type: tea.KeyEnter})
@@ -427,20 +433,20 @@ func TestChatModelSelectorFiltersAndSelects(t *testing.T) {
 
 func TestChatModelSelectorKeepsFocusWithNoMatches(t *testing.T) {
 	model := newChatModel("rho")
-	model.OpenSelector("Select model", []autocompleteItem{
+	model.OpenModalSelector("Select model", []autocompleteItem{
 		{Value: "openai/gpt-4o", Label: "gpt-4o", Description: "openai"},
 	}, nil, nil)
 
 	model.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("zzz")})
-	if len(model.selectorItems) != 0 {
-		t.Fatalf("selectorItems = %d, want 0", len(model.selectorItems))
+	if len(model.modal.items) != 0 {
+		t.Fatalf("selectorItems = %d, want 0", len(model.modal.items))
 	}
 
 	model.Update(tea.KeyMsg{Type: tea.KeyBackspace})
 	model.Update(tea.KeyMsg{Type: tea.KeyBackspace})
 	model.Update(tea.KeyMsg{Type: tea.KeyBackspace})
-	if len(model.selectorItems) != 1 {
-		t.Fatalf("selectorItems after clearing filter = %d, want 1", len(model.selectorItems))
+	if len(model.modal.items) != 1 {
+		t.Fatalf("selectorItems after clearing filter = %d, want 1", len(model.modal.items))
 	}
 	if got := string(model.input); got != "" {
 		t.Fatalf("main input changed while selector was focused: %q", got)
@@ -539,11 +545,11 @@ func TestInteractiveSettingsCommandOpensSelector(t *testing.T) {
 
 	im.handleSubmit("/settings")
 
-	if im.ui.selectorTitle != "Settings" {
-		t.Fatalf("selector title = %q, want Settings", im.ui.selectorTitle)
+	if im.ui.modal.title != "Settings" {
+		t.Fatalf("selector title = %q, want Settings", im.ui.modal.title)
 	}
-	if !autocompleteHasValue(im.ui.selectorItems, "model") {
-		t.Fatalf("settings selector missing model item: %#v", im.ui.selectorItems)
+	if !autocompleteHasValue(im.ui.modal.items, "model") {
+		t.Fatalf("settings selector missing model item: %#v", im.ui.modal.items)
 	}
 }
 
@@ -558,13 +564,13 @@ func TestInteractiveSettingsTogglePersistsShowImages(t *testing.T) {
 	})
 
 	im.handleSubmit("/settings")
-	for i, item := range im.ui.selectorItems {
+	for i, item := range im.ui.modal.items {
 		if item.Value == "showImages" {
-			im.ui.selectorIdx = i
+			im.ui.modal.selIdx = i
 			break
 		}
 	}
-	im.ui.applySelector()
+	im.ui.Update(tea.KeyMsg{Type: tea.KeyEnter})
 
 	reloaded := codecore.NewSettingsManager(settingsDir, "")
 	if got := reloaded.GetBool("showImages"); got {
@@ -586,13 +592,13 @@ func TestInteractiveSettingsCyclesThinkingLevel(t *testing.T) {
 	})
 
 	im.handleSubmit("/settings")
-	for i, item := range im.ui.selectorItems {
+	for i, item := range im.ui.modal.items {
 		if item.Value == "thinkingLevel" {
-			im.ui.selectorIdx = i
+			im.ui.modal.selIdx = i
 			break
 		}
 	}
-	im.ui.applySelector()
+	im.ui.Update(tea.KeyMsg{Type: tea.KeyEnter})
 
 	reloaded := codecore.NewSettingsManager(settingsDir, "")
 	if got := reloaded.GetString("thinkingLevel"); got != "low" {
@@ -612,8 +618,8 @@ func TestInteractiveAppKeybindingOpensModelSelector(t *testing.T) {
 
 	im.ui.Update(tea.KeyMsg{Type: tea.KeyCtrlL})
 
-	if im.ui.selectorTitle != "Select model" {
-		t.Fatalf("selector title = %q, want Select model", im.ui.selectorTitle)
+	if im.ui.modal.title != "Select model" {
+		t.Fatalf("selector title = %q, want Select model", im.ui.modal.title)
 	}
 }
 
@@ -626,8 +632,8 @@ func TestInteractiveAppKeybindingOpensSettingsSelector(t *testing.T) {
 
 	im.ui.Update(tea.KeyMsg{Type: tea.KeyCtrlP})
 
-	if im.ui.selectorTitle != "Settings" {
-		t.Fatalf("selector title = %q, want Settings", im.ui.selectorTitle)
+	if im.ui.modal.title != "Settings" {
+		t.Fatalf("selector title = %q, want Settings", im.ui.modal.title)
 	}
 }
 
@@ -663,11 +669,11 @@ func TestInteractiveSessionsCommandOpensResumeSelector(t *testing.T) {
 
 	im.handleSubmit("/sessions")
 
-	if im.ui.selectorTitle != "Resume session" {
-		t.Fatalf("selector title = %q, want Resume session", im.ui.selectorTitle)
+	if im.ui.modal.title != "Resume session" {
+		t.Fatalf("selector title = %q, want Resume session", im.ui.modal.title)
 	}
-	if !autocompleteHasValue(im.ui.selectorItems, "session_a") {
-		t.Fatalf("session selector missing saved session: %#v", im.ui.selectorItems)
+	if !autocompleteHasValue(im.ui.modal.items, "session_a") {
+		t.Fatalf("session selector missing saved session: %#v", im.ui.modal.items)
 	}
 }
 
@@ -682,11 +688,11 @@ func TestInteractiveTreeCommandOpensSessionTreeSelector(t *testing.T) {
 
 	im.handleSubmit("/tree")
 
-	if im.ui.selectorTitle != "Session tree" {
-		t.Fatalf("selector title = %q, want Session tree", im.ui.selectorTitle)
+	if im.ui.modal.title != "Session tree" {
+		t.Fatalf("selector title = %q, want Session tree", im.ui.modal.title)
 	}
-	if !autocompleteHasValue(im.ui.selectorItems, "session_a") {
-		t.Fatalf("tree selector missing saved session: %#v", im.ui.selectorItems)
+	if !autocompleteHasValue(im.ui.modal.items, "session_a") {
+		t.Fatalf("tree selector missing saved session: %#v", im.ui.modal.items)
 	}
 }
 
@@ -800,8 +806,12 @@ func TestInteractiveNameCommandWithoutArgsOpensPrompt(t *testing.T) {
 
 	im.handleSubmit("/name")
 
-	if im.ui.promptTitle != "Session name" {
-		t.Fatalf("prompt title = %q, want Session name", im.ui.promptTitle)
+	if im.ui.modal == nil || im.ui.modal.title != "Session name" {
+		title := ""
+		if im.ui.modal != nil {
+			title = im.ui.modal.title
+		}
+		t.Fatalf("modal title = %q, want Session name", title)
 	}
 }
 
@@ -815,11 +825,15 @@ func TestInteractiveThemeCommandWithoutArgsOpensSelector(t *testing.T) {
 
 	im.handleSubmit("/theme")
 
-	if im.ui.selectorTitle != "Select theme" {
-		t.Fatalf("selector title = %q, want Select theme", im.ui.selectorTitle)
+	if im.ui.modal == nil || im.ui.modal.title != "Select theme" {
+		title := ""
+		if im.ui.modal != nil {
+			title = im.ui.modal.title
+		}
+		t.Fatalf("modal title = %q, want Select theme", title)
 	}
-	if !autocompleteHasValue(im.ui.selectorItems, "default") || !autocompleteHasValue(im.ui.selectorItems, "dracula") {
-		t.Fatalf("theme selector missing built-ins: %#v", im.ui.selectorItems)
+	if !autocompleteHasValue(im.ui.modal.items, "default") || !autocompleteHasValue(im.ui.modal.items, "dracula") {
+		t.Fatalf("theme selector missing built-ins: %#v", im.ui.modal.items)
 	}
 }
 
@@ -983,54 +997,54 @@ func TestSelectorScrollingKeys(t *testing.T) {
 		items[i] = autocompleteItem{Value: fmt.Sprintf("item_%d", i), Label: fmt.Sprintf("Item %d", i), Description: "test"}
 	}
 
-	model.OpenSelector("Test", items, nil, nil)
+	model.OpenModalSelector("Test", items, nil, nil)
 
-	if len(model.selectorItems) != 15 {
-		t.Fatalf("expected 15 items, got %d", len(model.selectorItems))
+	if len(model.modal.items) != 15 {
+		t.Fatalf("expected 15 items, got %d", len(model.modal.items))
 	}
 
 	// Down arrow should increase selection
 	for i := 0; i < 14; i++ {
 		model.Update(tea.KeyMsg{Type: tea.KeyDown})
-		if model.selectorIdx != i+1 {
-			t.Fatalf("down press %d: expected idx %d, got %d", i+1, i+1, model.selectorIdx)
+		if model.modal.selIdx != i+1 {
+			t.Fatalf("down press %d: expected idx %d, got %d", i+1, i+1, model.modal.selIdx)
 		}
 	}
 
 	// Up arrow should decrease selection
 	for i := 0; i < 14; i++ {
 		model.Update(tea.KeyMsg{Type: tea.KeyUp})
-		if model.selectorIdx != 13-i {
-			t.Fatalf("up press %d: expected idx %d, got %d", i+1, 13-i, model.selectorIdx)
+		if model.modal.selIdx != 13-i {
+			t.Fatalf("up press %d: expected idx %d, got %d", i+1, 13-i, model.modal.selIdx)
 		}
 	}
 
 	// End key should go to last item
 	model.Update(tea.KeyMsg{Type: tea.KeyEnd})
-	if model.selectorIdx != 14 {
-		t.Fatalf("End: expected idx 14, got %d", model.selectorIdx)
+	if model.modal.selIdx != 14 {
+		t.Fatalf("End: expected idx 14, got %d", model.modal.selIdx)
 	}
 
 	// Home key should go to first item
 	model.Update(tea.KeyMsg{Type: tea.KeyHome})
-	if model.selectorIdx != 0 {
-		t.Fatalf("Home: expected idx 0, got %d", model.selectorIdx)
+	if model.modal.selIdx != 0 {
+		t.Fatalf("Home: expected idx 0, got %d", model.modal.selIdx)
 	}
 
 	// Verify PgDn shortcut via string
 	model.Update(tea.KeyMsg{Type: tea.KeyPgDown})
 	// PgDn jumps by 8, so idx should be 8
-	if model.selectorIdx != 8 {
-		t.Fatalf("PgDn: expected idx 8, got %d", model.selectorIdx)
+	if model.modal.selIdx != 8 {
+		t.Fatalf("PgDn: expected idx 8, got %d", model.modal.selIdx)
 	}
 
 	// Verify view contains scroll indicator
 	view := model.View()
 	if !strings.Contains(view, "more items") {
-		t.Logf("View does not contain 'more items', items=%d, selectorItems=%d, selectorIdx=%d", len(items), len(model.selectorItems), model.selectorIdx)
+		t.Logf("View does not contain 'more items', items=%d, modalItems=%d, selIdx=%d", len(items), len(model.modal.items), model.modal.selIdx)
 	}
 
-	t.Logf("All scroll tests passed! selectorIdx=%d", model.selectorIdx)
+	t.Logf("All scroll tests passed! selIdx=%d", model.modal.selIdx)
 }
 
 func TestChatModelMetadataFooter(t *testing.T) {
@@ -1103,4 +1117,76 @@ func TestChatModelMetadataFooter(t *testing.T) {
 		t.Fatalf("expected totalCost to be cumulative (0.0165), got %f", model.totalCost)
 	}
 }
+
+func TestChatModelSelectorEmptyFilterPanic(t *testing.T) {
+	model := newChatModel("test")
+	model.width = 80
+	model.height = 24
+
+	items := []autocompleteItem{
+		{Value: "a", Label: "A"},
+	}
+
+	model.OpenModalSelector("Test", items, func(item autocompleteItem) {}, nil)
+
+	// Filter to something with 0 matches
+	model.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("zzz")})
+	if len(model.modal.items) != 0 {
+		t.Fatalf("expected 0 items, got %d", len(model.modal.items))
+	}
+
+	// Press PgDn or End to trigger the issue where selIdx goes to -1
+	model.Update(tea.KeyMsg{Type: tea.KeyEnd})
+	if model.modal.selIdx != 0 {
+		t.Fatalf("expected selIdx to be clamped to 0, got %d", model.modal.selIdx)
+	}
+
+	// Clear filter to get 1 match again
+	model.Update(tea.KeyMsg{Type: tea.KeyBackspace})
+	model.Update(tea.KeyMsg{Type: tea.KeyBackspace})
+	model.Update(tea.KeyMsg{Type: tea.KeyBackspace})
+
+	if len(model.modal.items) != 1 {
+		t.Fatalf("expected 1 item, got %d", len(model.modal.items))
+	}
+	if model.modal.selIdx != 0 {
+		t.Fatalf("expected selIdx to be 0, got %d", model.modal.selIdx)
+	}
+
+	// Press Enter - should not panic
+	model.Update(tea.KeyMsg{Type: tea.KeyEnter})
+}
+
+func TestChatModelInfoModalScroll(t *testing.T) {
+	model := newChatModel("test")
+	model.width = 80
+	model.height = 24
+
+	content := make([]string, 30)
+	for i := 0; i < 30; i++ {
+		content[i] = fmt.Sprintf("Line %d", i)
+	}
+
+	model.OpenModalInfo("Info", content, nil)
+
+	// Max visible lines in info modal is 16
+	// So max scroll is 30 - 16 = 14
+	model.Update(tea.KeyMsg{Type: tea.KeyEnd})
+	if model.modal.infoScroll != 14 {
+		t.Fatalf("expected infoScroll at End to be 14, got %d", model.modal.infoScroll)
+	}
+
+	// Pressing down should not exceed maxScroll
+	model.Update(tea.KeyMsg{Type: tea.KeyDown})
+	if model.modal.infoScroll != 14 {
+		t.Fatalf("expected infoScroll to be clamped to 14, got %d", model.modal.infoScroll)
+	}
+
+	// Pressing up should immediately scroll up (should not be stuck)
+	model.Update(tea.KeyMsg{Type: tea.KeyUp})
+	if model.modal.infoScroll != 13 {
+		t.Fatalf("expected infoScroll to scroll up to 13 immediately, got %d", model.modal.infoScroll)
+	}
+}
+
 

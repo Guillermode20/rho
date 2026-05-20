@@ -34,5 +34,7 @@
 # Extension plugins built locally
 *.so
 examples/extensions/*.so
+/subagent
+examples/extensions/subagent/subagent
 
 pi

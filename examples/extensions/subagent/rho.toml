@@ -1,0 +1,25 @@
+id = "rho.subagent"
+name = "Subagent Extension"
+version = "1.0.0"
+description = "Spawn sub-agents to parallelize work. Provides SpawnSubagent (single), SpawnSubagents (parallel), and SubagentStatus tools."
+
+[entry]
+command = "./subagent"
+
+[capabilities]
+tools = true
+skills = false
+prompts = false
+commands = true
+
+[[tools]]
+id = "SpawnSubagent"
+description = "Spawn a sub-agent to work on a task independently. The sub-agent runs rho in print mode with its own context."
+
+[[tools]]
+id = "SpawnSubagents"
+description = "Spawn multiple sub-agents in parallel to work on independent tasks simultaneously."
+
+[[tools]]
+id = "SubagentStatus"
+description = "Check the status of all spawned sub-agents."

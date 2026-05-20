@@ -435,7 +435,7 @@ func (m *SlashCommandManager) registerBuiltins() {
 		Usage:       "/reload",
 		Category:    "general",
 		Handler: func(ctx SlashCommandContext, args []string) error {
-			ctx.Notify("Reload is not implemented in this TUI yet.", "info")
+			ctx.Notify("Use /reload in interactive mode to reload extensions, skills, prompts, and themes.", "info")
 			return nil
 		},
 	})
