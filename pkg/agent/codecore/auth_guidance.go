@@ -12,6 +12,8 @@ func MissingAPIKeyMessage(provider string) string {
 		return "No API key for Google AI. Set GOOGLE_API_KEY"
 	case "deepseek":
 		return "No API key for DeepSeek. Set DEEPSEEK_API_KEY"
+	case "crof":
+		return "No API key for CrofAI. Set CROF_API_KEY or CROFAI_API_KEY"
 	default:
 		return fmt.Sprintf("No API key for %s. Set %s_API_KEY", provider, provider)
 	}

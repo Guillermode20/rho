@@ -1,6 +1,7 @@
 package agent
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"time"
@@ -78,8 +79,13 @@ func (l *AgentLoop) Continue(context AgentContext, emit AgentEventCallback) ([]A
 
 func (l *AgentLoop) runLoop(emit AgentEventCallback) ([]AgentMessage, error) {
 	maxIterations := 20 // Safety limit to prevent infinite loops
+	emit(AgentEvent{Type: "agent_start"})
+	defer emit(AgentEvent{Type: "agent_end"})
 
 	for i := 0; i < maxIterations; i++ {
+		if l.isAborted() {
+			return l.extractNewMessages(), nil
+		}
 		// Build LLM context
 		llmCtx := l.buildLLMContext()
 
@@ -92,6 +98,10 @@ func (l *AgentLoop) runLoop(emit AgentEventCallback) ([]AgentMessage, error) {
 		if msg == nil {
 			break
 		}
+		emit(AgentEvent{
+			Type:    "message_end",
+			Message: msg,
+		})
 
 		// Check for tool calls
 		if len(msg.ToolCalls) > 0 && msg.StopReason != ai.StopReasonToolUse {
@@ -191,6 +201,9 @@ func (l *AgentLoop) streamResponse(llmCtx ai.Context, emit AgentEventCallback) (
 	}
 
 	options := &ai.SimpleStreamOptions{}
+	if l.config.Signal != nil {
+		options.Signal = l.config.Signal
+	}
 	if l.config.MaxTokens > 0 {
 		options.MaxTokens = l.config.MaxTokens
 	}
@@ -216,6 +229,11 @@ func (l *AgentLoop) streamResponse(llmCtx ai.Context, emit AgentEventCallback) (
 	var currentToolCalls []ai.ToolCall
 
 	err := streamFn(l.config.Model, llmCtx, options, func(event ai.StreamEvent) error {
+		if l.isAborted() {
+			msg.StopReason = ai.StopReasonAborted
+			msg.ErrorMessage = "Operation aborted"
+			return context.Canceled
+		}
 		switch event.Type {
 		case "text_delta":
 			currentText += event.Delta
@@ -234,12 +252,15 @@ func (l *AgentLoop) streamResponse(llmCtx ai.Context, emit AgentEventCallback) (
 			emit(AgentEvent{
 				Type:         "toolcall_start",
 				ContentIndex: event.ContentIndex,
+				ToolCall:     event.ToolCall,
 			})
 
 		case "toolcall_delta":
 			emit(AgentEvent{
-				Type:  "toolcall_delta",
-				Delta: event.Delta,
+				Type:         "toolcall_delta",
+				ContentIndex: event.ContentIndex,
+				Delta:        event.Delta,
+				ToolCall:     event.ToolCall,
 			})
 
 		case "toolcall_end":
@@ -278,6 +299,11 @@ func (l *AgentLoop) streamResponse(llmCtx ai.Context, emit AgentEventCallback) (
 	})
 
 	if err != nil {
+		if err == context.Canceled || l.isAborted() {
+			msg.StopReason = ai.StopReasonAborted
+			msg.ErrorMessage = "Operation aborted"
+			return msg, nil
+		}
 		return nil, err
 	}
 
@@ -302,6 +328,9 @@ func (l *AgentLoop) executeToolCalls(msg AgentMessage, emit AgentEventCallback) 
 	}
 
 	for _, tc := range msg.ToolCalls {
+		if l.isAborted() {
+			return results, nil
+		}
 		// Check before-tool hook
 		if l.beforeTool != nil {
 			var args map[string]interface{}
@@ -348,8 +377,9 @@ func (l *AgentLoop) executeToolCalls(msg AgentMessage, emit AgentEventCallback) 
 		emit(AgentEvent{
 			Type: "tool_execution_start",
 			ToolCall: &ai.ToolCall{
-				ID:   tc.ID,
-				Name: tc.Name,
+				ID:        tc.ID,
+				Name:      tc.Name,
+				Arguments: tc.Arguments,
 			},
 		})
 
@@ -394,14 +424,28 @@ func (l *AgentLoop) executeToolCalls(msg AgentMessage, emit AgentEventCallback) 
 		emit(AgentEvent{
 			Type: "tool_execution_end",
 			ToolCall: &ai.ToolCall{
-				ID:   tc.ID,
-				Name: tc.Name,
+				ID:        tc.ID,
+				Name:      tc.Name,
+				Arguments: tc.Arguments,
 			},
-			Content: content,
+			Content: result.Content,
+			IsError: result.IsError,
 		})
 	}
 
 	return results, nil
+}
+
+func (l *AgentLoop) isAborted() bool {
+	if l.config.Signal == nil {
+		return false
+	}
+	select {
+	case <-l.config.Signal.Done():
+		return true
+	default:
+		return false
+	}
 }
 
 func (l *AgentLoop) extractNewMessages() []AgentMessage {

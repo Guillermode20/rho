@@ -3,6 +3,8 @@
 package agent
 
 import (
+	"context"
+
 	"github.com/earendil-works/rho/pkg/ai"
 )
 
@@ -20,21 +22,21 @@ type AgentToolResult struct {
 
 // AgentMessage represents a message in the agent context.
 type AgentMessage struct {
-	Role             ai.Role            `json:"role"`
-	Content          string             `json:"content,omitempty"`
-	ToolCallID       string             `json:"toolCallId,omitempty"`
-	ToolName         string             `json:"toolName,omitempty"`
-	IsError          bool               `json:"isError,omitempty"`
-	ToolCalls        []ai.ToolCall      `json:"toolCalls,omitempty"`
-	Usage            *ai.Usage          `json:"usage,omitempty"`
-	StopReason       ai.StopReason      `json:"stopReason,omitempty"`
-	ErrorMessage     string             `json:"errorMessage,omitempty"`
-	ResponseID       string             `json:"responseId,omitempty"`
-	API              ai.API             `json:"api,omitempty"`
-	Provider         ai.Provider        `json:"provider,omitempty"`
-	Model            string             `json:"model,omitempty"`
-	Hide             bool               `json:"hide,omitempty"`
-	Timestamp        int64              `json:"timestamp,omitempty"`
+	Role         ai.Role       `json:"role"`
+	Content      string        `json:"content,omitempty"`
+	ToolCallID   string        `json:"toolCallId,omitempty"`
+	ToolName     string        `json:"toolName,omitempty"`
+	IsError      bool          `json:"isError,omitempty"`
+	ToolCalls    []ai.ToolCall `json:"toolCalls,omitempty"`
+	Usage        *ai.Usage     `json:"usage,omitempty"`
+	StopReason   ai.StopReason `json:"stopReason,omitempty"`
+	ErrorMessage string        `json:"errorMessage,omitempty"`
+	ResponseID   string        `json:"responseId,omitempty"`
+	API          ai.API        `json:"api,omitempty"`
+	Provider     ai.Provider   `json:"provider,omitempty"`
+	Model        string        `json:"model,omitempty"`
+	Hide         bool          `json:"hide,omitempty"`
+	Timestamp    int64         `json:"timestamp,omitempty"`
 }
 
 // ToolExecutionMode controls how tool calls are executed.
@@ -55,42 +57,43 @@ const (
 
 // AgentTool defines a tool available to the agent.
 type AgentTool struct {
-	Name        string      `json:"name"`
-	Description string      `json:"description"`
-	Parameters  interface{} `json:"parameters"` // JSON schema
+	Name        string                                                  `json:"name"`
+	Description string                                                  `json:"description"`
+	Parameters  interface{}                                             `json:"parameters"` // JSON schema
 	Execute     func(args map[string]interface{}) (string, bool, error) `json:"-"`
 }
 
 // AgentContext holds the current state of the agent.
 type AgentContext struct {
-	SystemPrompt string       `json:"systemPrompt"`
-	Model        ai.Model     `json:"model"`
-	Messages     []AgentMessage `json:"messages"`
-	Tools        []AgentTool  `json:"tools"`
+	SystemPrompt  string           `json:"systemPrompt"`
+	Model         ai.Model         `json:"model"`
+	Messages      []AgentMessage   `json:"messages"`
+	Tools         []AgentTool      `json:"tools"`
 	ThinkingLevel ai.ThinkingLevel `json:"thinkingLevel,omitempty"`
 }
 
 // AgentState is a snapshot of the agent's state.
 type AgentState struct {
-	SystemPrompt   string       `json:"systemPrompt"`
-	Model          ai.Model     `json:"model"`
-	Messages       []AgentMessage `json:"messages"`
-	Tools          []AgentTool  `json:"tools"`
-	ThinkingLevel  ai.ThinkingLevel `json:"thinkingLevel,omitempty"`
-	IsStreaming    bool         `json:"isStreaming"`
-	ErrorMessage   string       `json:"errorMessage,omitempty"`
+	SystemPrompt  string           `json:"systemPrompt"`
+	Model         ai.Model         `json:"model"`
+	Messages      []AgentMessage   `json:"messages"`
+	Tools         []AgentTool      `json:"tools"`
+	ThinkingLevel ai.ThinkingLevel `json:"thinkingLevel,omitempty"`
+	IsStreaming   bool             `json:"isStreaming"`
+	ErrorMessage  string           `json:"errorMessage,omitempty"`
 }
 
 // AgentEvent represents events emitted during the agent loop.
 type AgentEvent struct {
-	Type        string           `json:"type"`
-	ContentIndex int             `json:"contentIndex,omitempty"`
-	Delta       string           `json:"delta,omitempty"`
-	Content     string           `json:"content,omitempty"`
-	ToolCall    *ai.ToolCall     `json:"toolCall,omitempty"`
-	Message     *AgentMessage    `json:"message,omitempty"`
-	Partial     *AgentMessage    `json:"partial,omitempty"`
-	Error       string           `json:"error,omitempty"`
+	Type         string        `json:"type"`
+	ContentIndex int           `json:"contentIndex,omitempty"`
+	Delta        string        `json:"delta,omitempty"`
+	Content      string        `json:"content,omitempty"`
+	ToolCall     *ai.ToolCall  `json:"toolCall,omitempty"`
+	Message      *AgentMessage `json:"message,omitempty"`
+	Partial      *AgentMessage `json:"partial,omitempty"`
+	Error        string        `json:"error,omitempty"`
+	IsError      bool          `json:"isError,omitempty"`
 }
 
 // AgentEventCallback is called for each agent event.
@@ -98,14 +101,15 @@ type AgentEventCallback func(event AgentEvent) error
 
 // AgentLoopConfig configures the agent loop.
 type AgentLoopConfig struct {
-	Model            ai.Model             `json:"model"`
-	SystemPrompt     string               `json:"systemPrompt,omitempty"`
-	MaxTokens        int                  `json:"maxTokens,omitempty"`
-	Temperature      float64              `json:"temperature,omitempty"`
-	ThinkingLevel    ai.ThinkingLevel     `json:"thinkingLevel,omitempty"`
-	ToolExecutionMode ToolExecutionMode   `json:"toolExecutionMode,omitempty"`
-	APIKey           string               `json:"apiKey,omitempty"`
-	MaxRetries       int                  `json:"maxRetries,omitempty"`
+	Model             ai.Model          `json:"model"`
+	SystemPrompt      string            `json:"systemPrompt,omitempty"`
+	MaxTokens         int               `json:"maxTokens,omitempty"`
+	Temperature       float64           `json:"temperature,omitempty"`
+	ThinkingLevel     ai.ThinkingLevel  `json:"thinkingLevel,omitempty"`
+	ToolExecutionMode ToolExecutionMode `json:"toolExecutionMode,omitempty"`
+	APIKey            string            `json:"apiKey,omitempty"`
+	MaxRetries        int               `json:"maxRetries,omitempty"`
+	Signal            context.Context   `json:"-"`
 }
 
 // BeforeToolCallContext provides context for beforeToolCall hooks.

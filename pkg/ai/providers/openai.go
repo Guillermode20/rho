@@ -52,15 +52,15 @@ func StreamSimpleOpenAICompletions(model ai.Model, ctx ai.Context, options *ai.S
 func streamOpenAICompletions(model ai.Model, ctx ai.Context, opts *OpenAICompletionsOptions, callback ai.StreamEventCallback) error {
 	apiKey := opts.APIKey
 	if apiKey == "" {
-		apiKey = GetEnvAPIKey("OPENAI_API_KEY")
+		apiKey = openAICompatibleAPIKey(model.Provider)
 	}
 	if apiKey == "" {
-		return fmt.Errorf("OPENAI_API_KEY not set")
+		return fmt.Errorf("%s API key not set", model.Provider)
 	}
 
 	baseURL := model.BaseURL
 	if baseURL == "" {
-		baseURL = BaseURLFromEnv("OPENAI_BASE_URL", openaiDefaultBaseURL)
+		baseURL = openAICompatibleBaseURL(model.Provider)
 	}
 
 	body := buildOpenAICompletionsRequest(model, ctx, opts)
@@ -69,7 +69,11 @@ func streamOpenAICompletions(model ai.Model, ctx ai.Context, opts *OpenAIComplet
 		return fmt.Errorf("failed to marshal request: %w", err)
 	}
 
-	req, err := http.NewRequestWithContext(context.Background(), "POST", baseURL+"/v1/chat/completions", bytes.NewReader(jsonData))
+	reqCtx := context.Background()
+	if opts.Signal != nil {
+		reqCtx = opts.Signal
+	}
+	req, err := http.NewRequestWithContext(reqCtx, "POST", openAIChatCompletionsURL(baseURL), bytes.NewReader(jsonData))
 	if err != nil {
 		return fmt.Errorf("failed to create request: %w", err)
 	}
@@ -84,6 +88,36 @@ func streamOpenAICompletions(model ai.Model, ctx ai.Context, opts *OpenAIComplet
 
 	client := &http.Client{Timeout: 5 * time.Minute}
 	return sendOpenAIStreamingRequest(client, req, callback, model)
+}
+
+func openAICompatibleAPIKey(provider ai.Provider) string {
+	switch provider {
+	case ai.ProviderCrof:
+		return GetEnvAPIKey("CROF_API_KEY", "CROFAI_API_KEY")
+	case ai.ProviderDeepSeek:
+		return GetEnvAPIKey("DEEPSEEK_API_KEY")
+	default:
+		return GetEnvAPIKey("OPENAI_API_KEY")
+	}
+}
+
+func openAICompatibleBaseURL(provider ai.Provider) string {
+	switch provider {
+	case ai.ProviderCrof:
+		return BaseURLFromEnv("CROF_BASE_URL", "https://crof.ai")
+	case ai.ProviderDeepSeek:
+		return BaseURLFromEnv("DEEPSEEK_BASE_URL", "https://api.deepseek.com")
+	default:
+		return BaseURLFromEnv("OPENAI_BASE_URL", openaiDefaultBaseURL)
+	}
+}
+
+func openAIChatCompletionsURL(baseURL string) string {
+	baseURL = strings.TrimRight(baseURL, "/")
+	if strings.HasSuffix(baseURL, "/v1") || strings.HasSuffix(baseURL, "/v2") {
+		return baseURL + "/chat/completions"
+	}
+	return baseURL + "/v1/chat/completions"
 }
 
 func buildOpenAICompletionsRequest(model ai.Model, ctx ai.Context, opts *OpenAICompletionsOptions) map[string]interface{} {
@@ -115,6 +149,7 @@ func buildOpenAICompletionsRequest(model ai.Model, ctx ai.Context, opts *OpenAIC
 			})
 		}
 		body["tools"] = tools
+		body["tool_choice"] = "auto"
 	}
 	if opts.ToolChoice != nil {
 		body["tool_choice"] = opts.ToolChoice
@@ -157,7 +192,8 @@ func buildOpenAIMessages(ctx ai.Context) []map[string]interface{} {
 					})
 				case block.ToolCall != nil:
 					argsJSON, _ := json.Marshal(block.ToolCall.Arguments)
-					m["tool_calls"] = append(m["tool_calls"].([]interface{}), map[string]interface{}{
+					toolCalls, _ := m["tool_calls"].([]interface{})
+					toolCalls = append(toolCalls, map[string]interface{}{
 						"id":   block.ToolCall.ID,
 						"type": "function",
 						"function": map[string]interface{}{
@@ -165,6 +201,7 @@ func buildOpenAIMessages(ctx ai.Context) []map[string]interface{} {
 							"arguments": string(argsJSON),
 						},
 					})
+					m["tool_calls"] = toolCalls
 				}
 			}
 			if len(contentParts) > 0 {
@@ -181,9 +218,9 @@ func buildOpenAIMessages(ctx ai.Context) []map[string]interface{} {
 				content = tr.Content[0].Text.Text
 			}
 			messages = append(messages, map[string]interface{}{
-				"role":       "tool",
+				"role":         "tool",
 				"tool_call_id": tr.ToolCallID,
-				"content":    content,
+				"content":      content,
 			})
 		}
 	}
@@ -212,9 +249,9 @@ type openAIStreamChunk struct {
 	Created int64  `json:"created"`
 	Model   string `json:"model"`
 	Choices []struct {
-		Index        int           `json:"index"`
-		Delta        openAIDelta   `json:"delta"`
-		FinishReason *string       `json:"finish_reason"`
+		Index        int         `json:"index"`
+		Delta        openAIDelta `json:"delta"`
+		FinishReason *string     `json:"finish_reason"`
 	} `json:"choices"`
 	Usage *struct {
 		PromptTokens     int `json:"prompt_tokens"`
@@ -252,9 +289,9 @@ func parseOpenAIStream(body io.ReadCloser, callback ai.StreamEventCallback, mode
 	var contentBuilder strings.Builder
 	var reasoningBuilder strings.Builder
 	toolCallBuilders := make(map[int]*struct {
-		id      string
-		name    string
-		args    strings.Builder
+		id   string
+		name string
+		args strings.Builder
 	})
 
 	for scanner.Scan() {
@@ -319,11 +356,18 @@ func parseOpenAIStream(body io.ReadCloser, callback ai.StreamEventCallback, mode
 				b, ok := toolCallBuilders[tc.Index]
 				if !ok {
 					b = &struct {
-						id      string
-						name    string
-						args    strings.Builder
+						id   string
+						name string
+						args strings.Builder
 					}{}
 					toolCallBuilders[tc.Index] = b
+					callback(ai.StreamEvent{
+						Type:         "toolcall_start",
+						ContentIndex: tc.Index,
+						ToolCall: &ai.ToolCall{
+							Type: "toolCall",
+						},
+					})
 				}
 				if tc.ID != "" {
 					b.id = tc.ID
@@ -332,6 +376,17 @@ func parseOpenAIStream(body io.ReadCloser, callback ai.StreamEventCallback, mode
 					b.name = tc.Function.Name
 				}
 				b.args.WriteString(tc.Function.Arguments)
+				callback(ai.StreamEvent{
+					Type:         "toolcall_delta",
+					ContentIndex: tc.Index,
+					Delta:        tc.Function.Arguments,
+					ToolCall: &ai.ToolCall{
+						Type:      "toolCall",
+						ID:        b.id,
+						Name:      b.name,
+						Arguments: parseToolArguments(b.args.String()),
+					},
+				})
 			}
 
 			// Finish reason
@@ -352,15 +407,17 @@ func parseOpenAIStream(body io.ReadCloser, callback ai.StreamEventCallback, mode
 
 	// Build tool calls from collected chunks
 	for _, b := range toolCallBuilders {
-		var args map[string]interface{}
-		json.Unmarshal([]byte(b.args.String()), &args)
 		tc := ai.ToolCall{
 			Type:      "toolCall",
 			ID:        b.id,
 			Name:      b.name,
-			Arguments: args,
+			Arguments: parseToolArguments(b.args.String()),
 		}
 		msg.Content = append(msg.Content, ai.ContentBlock{ToolCall: &tc})
+		callback(ai.StreamEvent{
+			Type:     "toolcall_end",
+			ToolCall: &tc,
+		})
 	}
 
 	if msg.StopReason == "" {
@@ -382,6 +439,17 @@ func parseOpenAIStream(body io.ReadCloser, callback ai.StreamEventCallback, mode
 	return scanner.Err()
 }
 
+func parseToolArguments(raw string) map[string]interface{} {
+	if strings.TrimSpace(raw) == "" {
+		return nil
+	}
+	var args map[string]interface{}
+	if err := json.Unmarshal([]byte(raw), &args); err != nil {
+		return nil
+	}
+	return args
+}
+
 // OpenAI Responses API
 
 // StreamOpenAIResponses streams against the OpenAI Responses API.
@@ -401,10 +469,10 @@ func StreamOpenAIResponses(model ai.Model, ctx ai.Context, options *ai.StreamOpt
 	}
 
 	body := map[string]interface{}{
-		"model":    model.Name,
-		"stream":   true,
-		"input":    buildOpenAIMessages(ctx),
-		"tools":    buildOpenAITools(ctx),
+		"model":  model.Name,
+		"stream": true,
+		"input":  buildOpenAIMessages(ctx),
+		"tools":  buildOpenAITools(ctx),
 	}
 	if options.MaxTokens > 0 {
 		body["max_output_tokens"] = options.MaxTokens

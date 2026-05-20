@@ -159,6 +159,55 @@ func TestOAuthStore(t *testing.T) {
 	}
 }
 
+func TestOAuthStoreList(t *testing.T) {
+	f := tempFile(t)
+	defer os.Remove(f)
+	store := NewOAuthStore(f)
+
+	// Initially empty
+	list := store.List()
+	if len(list) != 0 {
+		t.Fatalf("expected empty list, got %d", len(list))
+	}
+
+	// Save multiple
+	store.Save(&OAuthCredential{Provider: "a", AccessToken: "tok1"})
+	store.Save(&OAuthCredential{Provider: "b", AccessToken: "tok2"})
+
+	list = store.List()
+	if len(list) != 2 {
+		t.Fatalf("expected 2 creds, got %d", len(list))
+	}
+
+	found := make(map[string]bool)
+	for _, c := range list {
+		found[c.Provider] = true
+	}
+	if !found["a"] || !found["b"] {
+		t.Fatalf("expected both providers, got %v", found)
+	}
+}
+
+func TestOAuthStoreHasProvider(t *testing.T) {
+	f := tempFile(t)
+	defer os.Remove(f)
+	store := NewOAuthStore(f)
+
+	if store.HasProvider("test") {
+		t.Fatal("expected false initially")
+	}
+
+	store.Save(&OAuthCredential{Provider: "test", AccessToken: "tok"})
+	if !store.HasProvider("test") {
+		t.Fatal("expected true after save")
+	}
+
+	store.Delete("test")
+	if store.HasProvider("test") {
+		t.Fatal("expected false after delete")
+	}
+}
+
 func TestOAuthDelete(t *testing.T) {
 	f := tempFile(t)
 	defer os.Remove(f)

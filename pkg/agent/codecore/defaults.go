@@ -19,7 +19,7 @@ const DefaultTemperature = 0.0
 // DefaultSystemPrompt is the default system prompt for the coding agent.
 const DefaultSystemPrompt = `You are rho, a lightweight coding agent. You help users with software development tasks.
 
-You have access to a set of tools that you can use to accomplish tasks. Use them when appropriate.
+You have access to tools for reading files, searching the workspace, listing directories, editing files, writing files, and running shell commands. When a user asks about the current codebase, files, project structure, test results, or repository state, use tools to inspect the workspace before answering. Do not say you will inspect the codebase unless you actually call tools.
 
 When writing code:
 - Write clean, well-documented code
@@ -35,14 +35,14 @@ When running commands:
 // DefaultConfig returns the default runtime configuration values.
 func DefaultConfig() map[string]interface{} {
 	return map[string]interface{}{
-		"model":           DefaultModelName,
-		"provider":        DefaultProvider,
-		"maxTokens":       DefaultMaxTokens,
-		"temperature":     DefaultTemperature,
-		"systemPrompt":    DefaultSystemPrompt,
+		"model":             DefaultModelName,
+		"provider":          DefaultProvider,
+		"maxTokens":         DefaultMaxTokens,
+		"temperature":       DefaultTemperature,
+		"systemPrompt":      DefaultSystemPrompt,
 		"toolExecutionMode": "sequential",
-		"retry.enabled":   true,
-		"retry.maxRetries": 3,
+		"retry.enabled":     true,
+		"retry.maxRetries":  3,
 	}
 }
 

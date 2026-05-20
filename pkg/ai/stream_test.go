@@ -125,6 +125,7 @@ func TestModelAndProviderConstants(t *testing.T) {
 		ProviderOpenAI,
 		ProviderGoogle,
 		ProviderDeepSeek,
+		ProviderCrof,
 		ProviderMistral,
 	}
 
@@ -133,6 +134,7 @@ func TestModelAndProviderConstants(t *testing.T) {
 		"openai",
 		"google",
 		"deepseek",
+		"crof",
 		"mistral",
 	}
 

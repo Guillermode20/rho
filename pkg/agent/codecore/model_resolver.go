@@ -10,8 +10,8 @@ import (
 // ScopedModel represents a model with its scope (which context it was resolved from).
 type ScopedModel struct {
 	Model      ai.Model `json:"model"`
-	Source     string   `json:"source"`     // "cli", "config", "session", "default"
-	Scope      string   `json:"scope"`      // "project", "user", "global"
+	Source     string   `json:"source"` // "cli", "config", "session", "default"
+	Scope      string   `json:"scope"`  // "project", "user", "global"
 	ProviderID string   `json:"providerId,omitempty"`
 	Label      string   `json:"label,omitempty"`
 }
@@ -28,9 +28,9 @@ const (
 
 // ResolveModelResult holds the result of model resolution.
 type ResolveModelResult struct {
-	Model  ai.Model      `json:"model"`
-	Scope  ModelScope    `json:"scope"`
-	Source string        `json:"source"` // description of where it came from
+	Model  ai.Model   `json:"model"`
+	Scope  ModelScope `json:"scope"`
+	Source string     `json:"source"` // description of where it came from
 }
 
 // ResolveCLIModel resolves a model from CLI arguments.
@@ -129,6 +129,8 @@ func AutoDetectProviderFromModel(modelName string) ai.Provider {
 		return ai.ProviderGoogle
 	case strings.Contains(name, "deepseek"):
 		return ai.ProviderDeepSeek
+	case strings.Contains(name, "glm"), strings.Contains(name, "kimi"), strings.Contains(name, "qwen"):
+		return ai.ProviderCrof
 	case strings.Contains(name, "mistral"):
 		return ai.ProviderMistral
 	case strings.Contains(name, "command"), strings.Contains(name, "cohere"):
@@ -149,7 +151,7 @@ func AutoDetectAPIFromProvider(provider ai.Provider) ai.API {
 		return ai.APIAnthropicMessages
 	case ai.ProviderOpenAI, ai.ProviderDeepSeek, ai.ProviderGroq,
 		ai.ProviderFireworks, ai.ProviderTogether, ai.ProviderXAI,
-		ai.ProviderCerebras, ai.ProviderOpenRouter, ai.ProviderVercelAIGateway:
+		ai.ProviderCerebras, ai.ProviderCrof, ai.ProviderOpenRouter, ai.ProviderVercelAIGateway:
 		return ai.APIOpenAICompletions
 	case ai.ProviderGoogle:
 		return ai.APIGoogleGenerativeAI

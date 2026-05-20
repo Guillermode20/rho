@@ -136,6 +136,14 @@ var providerDisplayNames = map[ai.Provider]ProviderDisplayInfo{
 		URL:         "https://cerebras.ai",
 		DocsURL:     "https://inference.cerebras.ai/docs",
 	},
+	ai.ProviderCrof: {
+		Name:        "CrofAI",
+		ShortName:   "Crof",
+		Icon:        "▩",
+		Description: "CrofAI OpenAI-compatible models",
+		URL:         "https://crof.ai",
+		DocsURL:     "https://crof.ai/docs",
+	},
 	ai.ProviderAzureOpenAIResponses: {
 		Name:        "Azure OpenAI",
 		ShortName:   "Azure",

@@ -25,8 +25,9 @@ const (
 // OAuthCredentials stores OAuth tokens.
 type OAuthCredentials struct {
 	AccessToken  string `json:"accessToken"`
+	Code         string `json:"code,omitempty"`
 	RefreshToken string `json:"refreshToken,omitempty"`
-	ExpiresAt    int64  `json:"expiresAt,omitempty"`  // Unix timestamp
+	ExpiresAt    int64  `json:"expiresAt,omitempty"` // Unix timestamp
 	ProviderID   string `json:"providerId"`
 	Scopes       string `json:"scopes,omitempty"`
 	TokenType    string `json:"tokenType,omitempty"`
@@ -34,15 +35,15 @@ type OAuthCredentials struct {
 
 // OAuthAuthInfo describes a provider's OAuth configuration.
 type OAuthAuthInfo struct {
-	ProviderID       OAuthProviderID `json:"providerId"`
-	Name             string          `json:"name"`
-	AuthURL          string          `json:"authUrl"`
-	TokenURL         string          `json:"tokenUrl"`
-	ClientID         string          `json:"clientId"`
-	Scopes           []string        `json:"scopes"`
-	RedirectURI      string          `json:"redirectUri"`
-	PKCE             bool            `json:"pkce"`
-	CodeChallengeMethod string       `json:"codeChallengeMethod,omitempty"`
+	ProviderID          OAuthProviderID `json:"providerId"`
+	Name                string          `json:"name"`
+	AuthURL             string          `json:"authUrl"`
+	TokenURL            string          `json:"tokenUrl"`
+	ClientID            string          `json:"clientId"`
+	Scopes              []string        `json:"scopes"`
+	RedirectURI         string          `json:"redirectUri"`
+	PKCE                bool            `json:"pkce"`
+	CodeChallengeMethod string          `json:"codeChallengeMethod,omitempty"`
 }
 
 // OAuthLoginCallbacks provides callbacks for the OAuth login flow.
@@ -53,16 +54,16 @@ type OAuthLoginCallbacks struct {
 
 // OAuthSelectOption is an option in the OAuth provider selector.
 type OAuthSelectOption struct {
-	ProviderID   OAuthProviderID `json:"providerId"`
-	Name         string          `json:"name"`
-	Description  string          `json:"description"`
-	AuthInfo     *OAuthAuthInfo  `json:"authInfo"`
+	ProviderID  OAuthProviderID `json:"providerId"`
+	Name        string          `json:"name"`
+	Description string          `json:"description"`
+	AuthInfo    *OAuthAuthInfo  `json:"authInfo"`
 }
 
 // OAuthSelectPrompt is shown to the user to pick an OAuth provider.
 type OAuthSelectPrompt struct {
-	Title        string              `json:"title"`
-	Options      []OAuthSelectOption `json:"options"`
+	Title   string              `json:"title"`
+	Options []OAuthSelectOption `json:"options"`
 }
 
 // OAuthProviderInterface defines the interface for OAuth providers.
@@ -71,12 +72,14 @@ type OAuthProviderInterface interface {
 	AuthInfo() *OAuthAuthInfo
 	Login(callbacks OAuthLoginCallbacks) (*OAuthCredentials, error)
 	Refresh(creds *OAuthCredentials) (*OAuthCredentials, error)
+	// GetAPIKey converts stored credentials into an API key string.
+	GetAPIKey(creds *OAuthCredentials) string
 }
 
 // PKCE generates PKCE challenge/verifier pairs.
 type PKCE struct {
-	Verifier       string
-	Challenge      string
+	Verifier        string
+	Challenge       string
 	ChallengeMethod string
 }
 
@@ -100,8 +103,8 @@ func GeneratePKCE() (*PKCE, error) {
 
 // OAuthProvider is the base OAuth provider implementation.
 type OAuthProvider struct {
-	ID       OAuthProviderID
-	Info     *OAuthAuthInfo
+	ID         OAuthProviderID
+	Info       *OAuthAuthInfo
 	httpClient *http.Client
 }
 
@@ -115,36 +118,36 @@ func NewOAuthProvider(id OAuthProviderID) *OAuthProvider {
 	switch id {
 	case OAuthAnthropic:
 		p.Info = &OAuthAuthInfo{
-			ProviderID: OAuthAnthropic,
-			Name:       "Anthropic",
-			AuthURL:    "https://auth.anthropic.com/authorize",
-			TokenURL:   "https://auth.anthropic.com/oauth/token",
-			ClientID:   "pi-coding-agent",
-			Scopes:     []string{"messages:write", "messages:read"},
+			ProviderID:  OAuthAnthropic,
+			Name:        "Anthropic",
+			AuthURL:     "https://auth.anthropic.com/authorize",
+			TokenURL:    "https://auth.anthropic.com/oauth/token",
+			ClientID:    "pi-coding-agent",
+			Scopes:      []string{"messages:write", "messages:read"},
 			RedirectURI: "http://localhost:9876/callback",
-			PKCE:       true,
+			PKCE:        true,
 		}
 	case OAuthGitHubCopilot:
 		p.Info = &OAuthAuthInfo{
-			ProviderID: OAuthGitHubCopilot,
-			Name:       "GitHub Copilot",
-			AuthURL:    "https://github.com/login/oauth/authorize",
-			TokenURL:   "https://github.com/login/oauth/access_token",
-			ClientID:   "Iv1.b697d80b5b83c5c7",
-			Scopes:     []string{"read:user", "copilot"},
+			ProviderID:  OAuthGitHubCopilot,
+			Name:        "GitHub Copilot",
+			AuthURL:     "https://github.com/login/oauth/authorize",
+			TokenURL:    "https://github.com/login/oauth/access_token",
+			ClientID:    "Iv1.b697d80b5b83c5c7",
+			Scopes:      []string{"read:user", "copilot"},
 			RedirectURI: "http://localhost:9876/callback",
-			PKCE:       false,
+			PKCE:        false,
 		}
 	case OAuthOpenAICodex:
 		p.Info = &OAuthAuthInfo{
-			ProviderID: OAuthOpenAICodex,
-			Name:       "OpenAI Codex",
-			AuthURL:    "https://github.com/login/oauth/authorize",
-			TokenURL:   "https://github.com/login/oauth/access_token",
-			ClientID:   "Iv1.b697d80b5b83c5c7",
-			Scopes:     []string{"read:user", "copilot"},
+			ProviderID:  OAuthOpenAICodex,
+			Name:        "OpenAI Codex",
+			AuthURL:     "https://github.com/login/oauth/authorize",
+			TokenURL:    "https://github.com/login/oauth/access_token",
+			ClientID:    "Iv1.b697d80b5b83c5c7",
+			Scopes:      []string{"read:user", "copilot"},
 			RedirectURI: "http://localhost:9876/callback",
-			PKCE:       false,
+			PKCE:        false,
 		}
 	}
 
@@ -157,12 +160,20 @@ func (p *OAuthProvider) ProviderID() OAuthProviderID { return p.ID }
 // AuthInfo returns the provider's OAuth configuration.
 func (p *OAuthProvider) AuthInfo() *OAuthAuthInfo { return p.Info }
 
-// Login performs the OAuth login flow.
-func (p *OAuthProvider) Login(callbacks OAuthLoginCallbacks) (*OAuthCredentials, error) {
-	// Build authorization URL
-	var pkce *PKCE
-	authURL := p.Info.AuthURL
+// GetAPIKey returns the access token as the API key for this provider.
+func (p *OAuthProvider) GetAPIKey(creds *OAuthCredentials) string {
+	if creds == nil {
+		return ""
+	}
+	return creds.AccessToken
+}
 
+// NewAuthorizationURL builds an authorization URL and returns its PKCE state.
+func (p *OAuthProvider) NewAuthorizationURL() (string, *PKCE, error) {
+	if p == nil || p.Info == nil {
+		return "", nil, fmt.Errorf("OAuth provider is not configured")
+	}
+	var pkce *PKCE
 	params := url.Values{}
 	params.Set("client_id", p.Info.ClientID)
 	params.Set("redirect_uri", p.Info.RedirectURI)
@@ -173,13 +184,22 @@ func (p *OAuthProvider) Login(callbacks OAuthLoginCallbacks) (*OAuthCredentials,
 		var err error
 		pkce, err = GeneratePKCE()
 		if err != nil {
-			return nil, fmt.Errorf("PKCE generation failed: %w", err)
+			return "", nil, fmt.Errorf("PKCE generation failed: %w", err)
 		}
 		params.Set("code_challenge", pkce.Challenge)
 		params.Set("code_challenge_method", pkce.ChallengeMethod)
 	}
 
-	authURL = authURL + "?" + params.Encode()
+	return p.Info.AuthURL + "?" + params.Encode(), pkce, nil
+}
+
+// Login performs the OAuth login flow.
+func (p *OAuthProvider) Login(callbacks OAuthLoginCallbacks) (*OAuthCredentials, error) {
+	// Build authorization URL
+	authURL, pkce, err := p.NewAuthorizationURL()
+	if err != nil {
+		return nil, err
+	}
 
 	// Open URL for user to authorize
 	if err := callbacks.OpenURL(authURL); err != nil {
@@ -194,7 +214,11 @@ func (p *OAuthProvider) Login(callbacks OAuthLoginCallbacks) (*OAuthCredentials,
 
 	// If we got an auth code, exchange it for tokens
 	if creds != nil && creds.AccessToken == "" {
-		tokenCreds, err := p.exchangeCode(creds.AccessToken, pkce)
+		code := strings.TrimSpace(creds.Code)
+		if code == "" {
+			return nil, fmt.Errorf("OAuth callback did not return an access token or authorization code")
+		}
+		tokenCreds, err := p.exchangeCode(code, pkce)
 		if err != nil {
 			return nil, fmt.Errorf("token exchange failed: %w", err)
 		}
@@ -202,6 +226,11 @@ func (p *OAuthProvider) Login(callbacks OAuthLoginCallbacks) (*OAuthCredentials,
 	}
 
 	return creds, nil
+}
+
+// ExchangeCode exchanges an authorization code for tokens.
+func (p *OAuthProvider) ExchangeCode(code string, pkce *PKCE) (*OAuthCredentials, error) {
+	return p.exchangeCode(code, pkce)
 }
 
 // Refresh refreshes OAuth credentials using a refresh token.
@@ -325,10 +354,40 @@ func (p *OAuthProvider) exchangeCode(code string, pkce *PKCE) (*OAuthCredentials
 
 // IsExpired checks if the credentials are expired.
 func IsExpired(creds *OAuthCredentials) bool {
-	if creds.ExpiresAt == 0 {
+	if creds == nil || creds.ExpiresAt == 0 {
 		return false
 	}
 	return time.Now().Unix() >= creds.ExpiresAt
+}
+
+// NeedsRefresh checks if the credentials will expire soon (within 5 minutes).
+// This allows preemptive refresh to avoid auth failures mid-session.
+func NeedsRefresh(creds *OAuthCredentials) bool {
+	if creds == nil || creds.ExpiresAt == 0 {
+		return false
+	}
+	// Refresh if expired or expiring within 5 minutes
+	return time.Now().Unix() >= (creds.ExpiresAt - 300)
+}
+
+// RefreshIfNeeded checks if credentials need refresh and refreshes them if so.
+// Returns the (possibly refreshed) credentials, or an error if refresh failed.
+// If no refresh is needed, the original credentials are returned unchanged.
+func RefreshIfNeeded(creds *OAuthCredentials, provider OAuthProviderInterface) (*OAuthCredentials, error) {
+	if creds == nil || provider == nil {
+		return creds, nil
+	}
+	if !NeedsRefresh(creds) {
+		return creds, nil
+	}
+	if creds.RefreshToken == "" {
+		return creds, nil
+	}
+	newCreds, err := provider.Refresh(creds)
+	if err != nil {
+		return creds, fmt.Errorf("failed to refresh OAuth token for %s: %w", provider.ProviderID(), err)
+	}
+	return newCreds, nil
 }
 
 // OAuthProviderFactory creates OAuth providers by ID.

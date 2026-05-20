@@ -29,7 +29,7 @@ func main() {
 	modelName := flag.String("model", "", "Model to use (e.g., \"claude-sonnet-4-20250514\", \"gpt-4o\", \"gemini-2.5-pro-exp-03-25\")")
 	providerName := flag.String("provider", "", "Provider to use (e.g., \"anthropic\", \"openai\", \"google\")")
 	apiKey := flag.String("api-key", "", "API key for the provider")
-	systemPrompt := flag.String("system-prompt", "You are a helpful coding assistant.", "System prompt for the agent")
+	systemPrompt := flag.String("system-prompt", codecore.DefaultSystemPrompt, "System prompt for the agent")
 	prompt := flag.String("prompt", "", "Single prompt (print mode)")
 	cwd := flag.String("cwd", "", "Working directory (default: current directory)")
 	listModels := flag.Bool("list-models", false, "List available models")
@@ -57,6 +57,7 @@ func main() {
 		}
 	}
 	authStorage := auth.NewAuthStorage(defaultAuthKeysPath())
+	oauthStore := auth.NewOAuthStore(defaultOAuthPath())
 	rhoDir := filepath.Join(os.Getenv("HOME"), ".rho")
 	settingsManager := codecore.NewSettingsManager(filepath.Join(rhoDir, "settings"), workDir)
 	themeManager := agenttheme.NewThemeManager(filepath.Join(rhoDir, "themes"))
@@ -74,12 +75,12 @@ func main() {
 	if *modelName != "" {
 		model = resolveModel(*modelName, *providerName)
 	} else {
-		model = getDefaultModel()
+		model = getDefaultModel(authStorage, oauthStore)
 	}
 
 	// Resolve API key
 	if *apiKey == "" {
-		*apiKey = resolveAPIKey(model, authStorage)
+		*apiKey = resolveAuthToken(model, authStorage, oauthStore)
 	}
 
 	// Resolve provider name
@@ -88,6 +89,15 @@ func main() {
 	}
 	if model.Provider == "" {
 		model.Provider = ai.Provider(*providerName)
+	}
+
+	// Check if we have a usable model with auth configured
+	hasAuth := *apiKey != "" || (model != ai.Model{} && providerHasAuth(model.Provider, authStorage, oauthStore))
+	if !hasAuth && model != (ai.Model{}) {
+		// Model was auto-selected but no auth is configured - reset to let interactive mode handle it
+		if *mode == "interactive" {
+			model = ai.Model{}
+		}
 	}
 
 	if *listModels {
@@ -103,6 +113,7 @@ func main() {
 		Provider:     model.Provider,
 		CWD:          workDir,
 		AuthStorage:  authStorage,
+		OAuthStore:   oauthStore,
 		Settings:     settingsManager,
 		ThemeManager: themeManager,
 	}
@@ -218,6 +229,8 @@ func resolveModel(modelName, providerName string) ai.Model {
 		api = ai.APIGoogleGenerativeAI
 	case ai.ProviderDeepSeek:
 		api = ai.APIOpenAICompletions
+	case ai.ProviderCrof:
+		api = ai.APIOpenAICompletions
 	}
 
 	return ai.Model{
@@ -227,22 +240,58 @@ func resolveModel(modelName, providerName string) ai.Model {
 	}
 }
 
-func getDefaultModel() ai.Model {
-	// Check environment for preferred model
-	models := ai.DefaultModels()
-	if len(models) > 0 {
+func getDefaultModel(authStorage *auth.AuthStorage, oauthStore *auth.OAuthStore) ai.Model {
+	authCheck := func(provider ai.Provider) bool {
+		return providerHasAuth(provider, authStorage, oauthStore)
+	}
+	available := ai.AvailableModels(authCheck)
+	if len(available) > 0 {
+		// Prefer Anthropic models first, then OpenAI, then first available
+		preferred := []ai.Provider{ai.ProviderAnthropic, ai.ProviderOpenAI, ai.ProviderGoogle}
+		for _, p := range preferred {
+			for _, m := range available {
+				if m.Provider == p {
+					return ai.Model{
+						API:      m.API,
+						Provider: m.Provider,
+						Name:     m.Name,
+						BaseURL:  m.BaseURL,
+					}
+				}
+			}
+		}
+		// Fallback to first available
+		m := available[0]
 		return ai.Model{
-			API:      models[0].API,
-			Provider: models[0].Provider,
-			Name:     models[0].Name,
-			BaseURL:  models[0].BaseURL,
+			API:      m.API,
+			Provider: m.Provider,
+			Name:     m.Name,
+			BaseURL:  m.BaseURL,
 		}
 	}
-	return ai.Model{
-		API:      ai.APIAnthropicMessages,
-		Provider: ai.ProviderAnthropic,
-		Name:     "claude-sonnet-4-20250514",
+	// No models with configured auth available - return empty model
+	return ai.Model{}
+}
+
+// providerHasAuth checks if a provider has configured authentication via any source.
+func providerHasAuth(provider ai.Provider, authStorage *auth.AuthStorage, oauthStore *auth.OAuthStore) bool {
+	// Check stored API keys
+	if authStorage != nil {
+		if authStorage.HasAPIKey(string(provider)) {
+			return true
+		}
 	}
+	// Check OAuth credentials
+	if oauthStore != nil {
+		if oauthStore.HasProvider(string(provider)) {
+			return true
+		}
+	}
+	// Check environment variables
+	if ai.ProviderHasEnvKey(provider) {
+		return true
+	}
+	return false
 }
 
 func defaultAuthKeysPath() string {
@@ -251,6 +300,14 @@ func defaultAuthKeysPath() string {
 		home = os.Getenv("HOME")
 	}
 	return filepath.Join(home, ".rho", "auth", "keys.json")
+}
+
+func defaultOAuthPath() string {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		home = os.Getenv("HOME")
+	}
+	return filepath.Join(home, ".rho", "auth", "oauth.json")
 }
 
 func resolveAPIKey(model ai.Model, authStorage *auth.AuthStorage) string {
@@ -263,6 +320,8 @@ func resolveAPIKey(model ai.Model, authStorage *auth.AuthStorage) string {
 		return firstConfiguredAPIKey(authStorage, string(model.Provider), "GOOGLE_API_KEY", "GEMINI_API_KEY")
 	case ai.ProviderDeepSeek:
 		return firstConfiguredAPIKey(authStorage, string(model.Provider), "DEEPSEEK_API_KEY")
+	case ai.ProviderCrof:
+		return firstConfiguredAPIKey(authStorage, string(model.Provider), "CROF_API_KEY", "CROFAI_API_KEY")
 	case ai.ProviderMistral:
 		return firstConfiguredAPIKey(authStorage, string(model.Provider), "MISTRAL_API_KEY")
 	case ai.ProviderGroq:
@@ -270,6 +329,41 @@ func resolveAPIKey(model ai.Model, authStorage *auth.AuthStorage) string {
 	default:
 		return providers.GetEnvAPIKey("OPENAI_API_KEY", "ANTHROPIC_API_KEY")
 	}
+}
+
+func resolveAuthToken(model ai.Model, authStorage *auth.AuthStorage, oauthStore *auth.OAuthStore) string {
+	if key := resolveAPIKey(model, authStorage); strings.TrimSpace(key) != "" {
+		return key
+	}
+	if oauthStore != nil {
+		if cred, ok := oauthStore.Get(string(model.Provider)); ok && strings.TrimSpace(cred.AccessToken) != "" {
+			// Check if OAuth credentials need refresh
+			goCreds := &ai.OAuthCredentials{
+				AccessToken:  cred.AccessToken,
+				RefreshToken: cred.RefreshToken,
+				ExpiresAt:    cred.ExpiresAt,
+				ProviderID:   cred.Provider,
+				Scopes:       cred.Scopes,
+				TokenType:    cred.TokenType,
+			}
+			provider := ai.OAuthProviderFactory(ai.OAuthProviderID(cred.Provider))
+			refreshed, err := ai.RefreshIfNeeded(goCreds, provider)
+			if err == nil && refreshed != goCreds && strings.TrimSpace(refreshed.AccessToken) != "" {
+				// Save refreshed credentials
+				_ = oauthStore.Save(&auth.OAuthCredential{
+					Provider:     refreshed.ProviderID,
+					AccessToken:  refreshed.AccessToken,
+					RefreshToken: refreshed.RefreshToken,
+					ExpiresAt:    refreshed.ExpiresAt,
+					Scopes:       refreshed.Scopes,
+					TokenType:    refreshed.TokenType,
+				})
+				return refreshed.AccessToken
+			}
+			return cred.AccessToken
+		}
+	}
+	return ""
 }
 
 func firstConfiguredAPIKey(authStorage *auth.AuthStorage, provider string, envNames ...string) string {
@@ -290,8 +384,17 @@ func printModelList() {
 		if def.Reasoning {
 			reasoning = " [reasoning]"
 		}
-		fmt.Printf("  %s/%s  (%s)%s\n", providerName, def.Name, string(def.API), reasoning)
+		// Check if this provider has any auth configured via env vars
+		available := ai.ProviderHasEnvKey(def.Provider)
+		indicator := " "
+		if !available {
+			indicator = "⚠"
+		}
+		fmt.Printf("  %s %s/%s  (%s)%s\n", indicator, providerName, def.Name, string(def.API), reasoning)
 	}
+	fmt.Println()
+	fmt.Println("  ⚠ = no API key found in environment variables")
+	fmt.Println("  Use /login <provider> to configure an API key, or set the appropriate env var.")
 }
 
 func readPrompt(promptText string) (string, error) {

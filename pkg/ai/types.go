@@ -25,23 +25,26 @@ const (
 type Provider string
 
 const (
-	ProviderAmazonBedrock       Provider = "amazon-bedrock"
-	ProviderAnthropic           Provider = "anthropic"
-	ProviderGoogle              Provider = "google"
-	ProviderGoogleVertex        Provider = "google-vertex"
-	ProviderOpenAI              Provider = "openai"
+	ProviderAmazonBedrock        Provider = "amazon-bedrock"
+	ProviderAnthropic            Provider = "anthropic"
+	ProviderGoogle               Provider = "google"
+	ProviderGoogleVertex         Provider = "google-vertex"
+	ProviderOpenAI               Provider = "openai"
 	ProviderAzureOpenAIResponses Provider = "azure-openai-responses"
-	ProviderOpenAICodex         Provider = "openai-codex"
-	ProviderDeepSeek            Provider = "deepseek"
-	ProviderGitHubCopilot       Provider = "github-copilot"
-	ProviderXAI                 Provider = "xai"
-	ProviderGroq                Provider = "groq"
-	ProviderCerebras            Provider = "cerebras"
-	ProviderOpenRouter          Provider = "openrouter"
-	ProviderVercelAIGateway     Provider = "vercel-ai-gateway"
-	ProviderMistral             Provider = "mistral"
-	ProviderFireworks           Provider = "fireworks"
-	ProviderTogether            Provider = "together"
+	ProviderOpenAICodex          Provider = "openai-codex"
+	ProviderDeepSeek             Provider = "deepseek"
+	ProviderGitHubCopilot        Provider = "github-copilot"
+	ProviderXAI                  Provider = "xai"
+	ProviderGroq                 Provider = "groq"
+	ProviderCerebras             Provider = "cerebras"
+	ProviderCrof                 Provider = "crof"
+	ProviderOpenRouter           Provider = "openrouter"
+	ProviderVercelAIGateway      Provider = "vercel-ai-gateway"
+	ProviderMistral              Provider = "mistral"
+	ProviderFireworks            Provider = "fireworks"
+	ProviderTogether             Provider = "together"
+	ProviderCloudflareAIGateway  Provider = "cloudflare-ai-gateway"
+	ProviderCloudflareWorkersAI  Provider = "cloudflare-workers-ai"
 )
 
 // ThinkingLevel represents the reasoning effort.
@@ -68,10 +71,10 @@ const (
 type Transport string
 
 const (
-	TransportSSE           Transport = "sse"
-	TransportWebSocket     Transport = "websocket"
+	TransportSSE             Transport = "sse"
+	TransportWebSocket       Transport = "websocket"
 	TransportWebSocketCached Transport = "websocket-cached"
-	TransportAuto          Transport = "auto"
+	TransportAuto            Transport = "auto"
 )
 
 // StopReason describes why message generation stopped.
@@ -89,8 +92,8 @@ const (
 type Role string
 
 const (
-	RoleUser      Role = "user"
-	RoleAssistant Role = "assistant"
+	RoleUser       Role = "user"
+	RoleAssistant  Role = "assistant"
 	RoleToolResult Role = "toolResult"
 )
 
@@ -105,10 +108,10 @@ type TextContent struct {
 
 // ThinkingContent represents a reasoning/thinking content block.
 type ThinkingContent struct {
-	Type               string `json:"type"`
-	Thinking           string `json:"thinking"`
-	ThinkingSignature  string `json:"thinkingSignature,omitempty"`
-	Redacted           bool   `json:"redacted,omitempty"`
+	Type              string `json:"type"`
+	Thinking          string `json:"thinking"`
+	ThinkingSignature string `json:"thinkingSignature,omitempty"`
+	Redacted          bool   `json:"redacted,omitempty"`
 }
 
 // ImageContent represents an image content block.
@@ -120,78 +123,78 @@ type ImageContent struct {
 
 // ToolCall represents a tool use by the model.
 type ToolCall struct {
-	Type            string                 `json:"type"`
-	ID              string                 `json:"id"`
-	Name            string                 `json:"name"`
-	Arguments       map[string]interface{} `json:"arguments"`
-	ThoughtSignature string                `json:"thoughtSignature,omitempty"`
+	Type             string                 `json:"type"`
+	ID               string                 `json:"id"`
+	Name             string                 `json:"name"`
+	Arguments        map[string]interface{} `json:"arguments"`
+	ThoughtSignature string                 `json:"thoughtSignature,omitempty"`
 }
 
 // Usage contains token usage information.
 type Usage struct {
-	Input       int `json:"input"`
-	Output      int `json:"output"`
-	CacheRead   int `json:"cacheRead"`
-	CacheWrite  int `json:"cacheWrite"`
-	TotalTokens int `json:"totalTokens"`
+	Input       int  `json:"input"`
+	Output      int  `json:"output"`
+	CacheRead   int  `json:"cacheRead"`
+	CacheWrite  int  `json:"cacheWrite"`
+	TotalTokens int  `json:"totalTokens"`
 	Cost        Cost `json:"cost"`
 }
 
 // Cost contains pricing information.
 type Cost struct {
-	Input     float64 `json:"input"`
-	Output    float64 `json:"output"`
-	CacheRead float64 `json:"cacheRead"`
+	Input      float64 `json:"input"`
+	Output     float64 `json:"output"`
+	CacheRead  float64 `json:"cacheRead"`
 	CacheWrite float64 `json:"cacheWrite"`
-	Total     float64 `json:"total"`
+	Total      float64 `json:"total"`
 }
 
 // Messages.
 
 // UserMessage represents a message from the user.
 type UserMessage struct {
-	Role      Role          `json:"role"`
-	Content   interface{}   `json:"content"` // string or []ContentBlock
-	Timestamp int64         `json:"timestamp"`
+	Role      Role        `json:"role"`
+	Content   interface{} `json:"content"` // string or []ContentBlock
+	Timestamp int64       `json:"timestamp"`
 }
 
 // AssistantMessage represents a message from the assistant.
 type AssistantMessage struct {
-	Role          Role             `json:"role"`
-	Content       []ContentBlock   `json:"content"`
-	API           API              `json:"api"`
-	Provider      Provider         `json:"provider"`
-	Model         string           `json:"model"`
-	ResponseModel string           `json:"responseModel,omitempty"`
-	ResponseID    string           `json:"responseId,omitempty"`
-	Usage         Usage            `json:"usage"`
-	StopReason    StopReason       `json:"stopReason"`
-	ErrorMessage  string           `json:"errorMessage,omitempty"`
-	Timestamp     int64            `json:"timestamp"`
+	Role          Role           `json:"role"`
+	Content       []ContentBlock `json:"content"`
+	API           API            `json:"api"`
+	Provider      Provider       `json:"provider"`
+	Model         string         `json:"model"`
+	ResponseModel string         `json:"responseModel,omitempty"`
+	ResponseID    string         `json:"responseId,omitempty"`
+	Usage         Usage          `json:"usage"`
+	StopReason    StopReason     `json:"stopReason"`
+	ErrorMessage  string         `json:"errorMessage,omitempty"`
+	Timestamp     int64          `json:"timestamp"`
 }
 
 // ToolResultMessage represents the result of a tool call.
 type ToolResultMessage struct {
-	Role       Role            `json:"role"`
-	ToolCallID string          `json:"toolCallId"`
-	ToolName   string          `json:"toolName"`
-	Content    []ContentBlock  `json:"content"`
-	IsError    bool            `json:"isError"`
-	Timestamp  int64           `json:"timestamp"`
+	Role       Role           `json:"role"`
+	ToolCallID string         `json:"toolCallId"`
+	ToolName   string         `json:"toolName"`
+	Content    []ContentBlock `json:"content"`
+	IsError    bool           `json:"isError"`
+	Timestamp  int64          `json:"timestamp"`
 }
 
 // ContentBlock is a union type for content blocks.
 type ContentBlock struct {
-	Text            *TextContent    `json:"text,omitempty"`
-	Thinking        *ThinkingContent `json:"thinking,omitempty"`
-	Image           *ImageContent   `json:"image,omitempty"`
-	ToolCall        *ToolCall       `json:"toolCall,omitempty"`
+	Text     *TextContent     `json:"text,omitempty"`
+	Thinking *ThinkingContent `json:"thinking,omitempty"`
+	Image    *ImageContent    `json:"image,omitempty"`
+	ToolCall *ToolCall        `json:"toolCall,omitempty"`
 }
 
 // Message is a union type for all message types.
 type Message struct {
-	User      *UserMessage      `json:"user,omitempty"`
-	Assistant *AssistantMessage `json:"assistant,omitempty"`
+	User       *UserMessage       `json:"user,omitempty"`
+	Assistant  *AssistantMessage  `json:"assistant,omitempty"`
 	ToolResult *ToolResultMessage `json:"toolResult,omitempty"`
 }
 
@@ -219,37 +222,37 @@ type Model struct {
 
 // StreamOptions configures streaming model calls.
 type StreamOptions struct {
-	Temperature  float64        `json:"temperature,omitempty"`
-	MaxTokens    int            `json:"maxTokens,omitempty"`
-	Signal       context.Context `json:"-"` // For cancellation
-	APIKey       string         `json:"apiKey,omitempty"`
-	Transport    Transport      `json:"transport,omitempty"`
-	CacheRetention CacheRetention `json:"cacheRetention,omitempty"`
-	SessionID    string         `json:"sessionId,omitempty"`
-	Headers      map[string]string `json:"headers,omitempty"`
-	TimeoutMs    int            `json:"timeoutMs,omitempty"`
-	MaxRetries   int            `json:"maxRetries,omitempty"`
-	MaxRetryDelayMs int         `json:"maxRetryDelayMs,omitempty"`
-	Metadata     map[string]interface{} `json:"metadata,omitempty"`
+	Temperature     float64                `json:"temperature,omitempty"`
+	MaxTokens       int                    `json:"maxTokens,omitempty"`
+	Signal          context.Context        `json:"-"` // For cancellation
+	APIKey          string                 `json:"apiKey,omitempty"`
+	Transport       Transport              `json:"transport,omitempty"`
+	CacheRetention  CacheRetention         `json:"cacheRetention,omitempty"`
+	SessionID       string                 `json:"sessionId,omitempty"`
+	Headers         map[string]string      `json:"headers,omitempty"`
+	TimeoutMs       int                    `json:"timeoutMs,omitempty"`
+	MaxRetries      int                    `json:"maxRetries,omitempty"`
+	MaxRetryDelayMs int                    `json:"maxRetryDelayMs,omitempty"`
+	Metadata        map[string]interface{} `json:"metadata,omitempty"`
 }
 
 // SimpleStreamOptions extends StreamOptions with reasoning settings.
 type SimpleStreamOptions struct {
 	StreamOptions
-	Reasoning      ThinkingLevel    `json:"reasoning,omitempty"`
+	Reasoning       ThinkingLevel         `json:"reasoning,omitempty"`
 	ThinkingBudgets map[ThinkingLevel]int `json:"thinkingBudgets,omitempty"`
 }
 
 // StreamEvent represents a single event in the response stream.
 type StreamEvent struct {
-	Type            string            `json:"type"`
-	ContentIndex    int               `json:"contentIndex,omitempty"`
-	Delta           string            `json:"delta,omitempty"`
-	Content         string            `json:"content,omitempty"`
-	ToolCall        *ToolCall         `json:"toolCall,omitempty"`
-	Partial         *AssistantMessage `json:"partial,omitempty"`
-	Message         *AssistantMessage `json:"message,omitempty"`
-	Error           *AssistantMessage `json:"error,omitempty"`
+	Type         string            `json:"type"`
+	ContentIndex int               `json:"contentIndex,omitempty"`
+	Delta        string            `json:"delta,omitempty"`
+	Content      string            `json:"content,omitempty"`
+	ToolCall     *ToolCall         `json:"toolCall,omitempty"`
+	Partial      *AssistantMessage `json:"partial,omitempty"`
+	Message      *AssistantMessage `json:"message,omitempty"`
+	Error        *AssistantMessage `json:"error,omitempty"`
 }
 
 // StreamEventCallback is called for each event in the stream.
@@ -260,8 +263,8 @@ type StreamFunction func(model Model, ctx Context, options *SimpleStreamOptions,
 
 // ModelRegistry manages available models and providers.
 type ModelRegistry struct {
-	models       []Model
-	providers    map[Provider]StreamFunction
+	models    []Model
+	providers map[Provider]StreamFunction
 }
 
 // NewModelRegistry creates a new model registry.

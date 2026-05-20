@@ -108,6 +108,8 @@ type OAuthCredential struct {
 	AccessToken  string `json:"accessToken"`
 	RefreshToken string `json:"refreshToken,omitempty"`
 	ExpiresAt    int64  `json:"expiresAt,omitempty"`
+	Scopes       string `json:"scopes,omitempty"`
+	TokenType    string `json:"tokenType,omitempty"`
 }
 
 // OAuthStore manages OAuth credentials.
@@ -133,6 +135,25 @@ func (s *OAuthStore) Save(cred *OAuthCredential) error {
 	defer s.mu.Unlock()
 	s.creds[cred.Provider] = cred
 	return s.save()
+}
+
+// List returns all stored OAuth credentials.
+func (s *OAuthStore) List() []*OAuthCredential {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	result := make([]*OAuthCredential, 0, len(s.creds))
+	for _, cred := range s.creds {
+		result = append(result, cred)
+	}
+	return result
+}
+
+// HasProvider checks if credentials exist for a given provider.
+func (s *OAuthStore) HasProvider(provider string) bool {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	_, ok := s.creds[provider]
+	return ok
 }
 
 // Get retrieves OAuth credentials for a provider.
