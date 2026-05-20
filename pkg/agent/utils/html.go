@@ -12,12 +12,14 @@ var (
 	htmlParaRe    = regexp.MustCompile(`</p>`)
 	multiSpaceRe  = regexp.MustCompile(`\s{2,}`)
 	htmlCommentRe = regexp.MustCompile(`<!--.*?-->`)
-	scriptStyleRe = regexp.MustCompile(`<(script|style)[^>]*>.*?</\1>`)
+	htmlScriptRe  = regexp.MustCompile(`(?is)<script[^>]*>.*?</script>`)
+	htmlStyleRe   = regexp.MustCompile(`(?is)<style[^>]*>.*?</style>`)
 )
 
 // StripHTMLTags removes all HTML tags from a string, preserving text content.
 func StripHTMLTags(s string) string {
-	s = scriptStyleRe.ReplaceAllString(s, "")
+	s = htmlScriptRe.ReplaceAllString(s, "")
+	s = htmlStyleRe.ReplaceAllString(s, "")
 	s = htmlCommentRe.ReplaceAllString(s, "")
 	s = htmlBreakRe.ReplaceAllString(s, "\n")
 	s = htmlParaRe.ReplaceAllString(s, "\n\n")

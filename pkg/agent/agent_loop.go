@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/earendil-works/rho/pkg/ai"
+	"github.com/earendil-works/rho/pkg/ai/providers"
 )
 
 // NewAgentLoop creates a new agent loop.
@@ -17,11 +18,12 @@ func NewAgentLoop(config AgentLoopConfig) *AgentLoop {
 
 // AgentLoop runs the agent loop that processes messages and executes tools.
 type AgentLoop struct {
-	config      AgentLoopConfig
-	context     AgentContext
-	beforeTool  func(ctx BeforeToolCallContext) (*BeforeToolCallResult, error)
-	afterTool   func(ctx AfterToolCallContext) (*AfterToolCallResult, error)
-	streamFn    func(model ai.Model, ctx ai.Context, options *ai.SimpleStreamOptions, callback ai.StreamEventCallback) error
+	config              AgentLoopConfig
+	context             AgentContext
+	initialMessageCount int
+	beforeTool          func(ctx BeforeToolCallContext) (*BeforeToolCallResult, error)
+	afterTool           func(ctx AfterToolCallContext) (*AfterToolCallResult, error)
+	streamFn            func(model ai.Model, ctx ai.Context, options *ai.SimpleStreamOptions, callback ai.StreamEventCallback) error
 }
 
 // SetBeforeTool sets the before-tool-call hook.
@@ -53,6 +55,7 @@ func (l *AgentLoop) Run(prompts []AgentMessage, context AgentContext, emit Agent
 		Tools:         context.Tools,
 		ThinkingLevel: context.ThinkingLevel,
 	}
+	l.initialMessageCount = len(context.Messages)
 
 	return l.runLoop(emit)
 }
@@ -69,6 +72,7 @@ func (l *AgentLoop) Continue(context AgentContext, emit AgentEventCallback) ([]A
 	}
 
 	l.context = context
+	l.initialMessageCount = len(context.Messages)
 	return l.runLoop(emit)
 }
 
@@ -201,10 +205,10 @@ func (l *AgentLoop) streamResponse(llmCtx ai.Context, emit AgentEventCallback) (
 	}
 
 	msg := &AgentMessage{
-		Role:    ai.RoleAssistant,
-		API:     l.config.Model.API,
+		Role:     ai.RoleAssistant,
+		API:      l.config.Model.API,
 		Provider: l.config.Model.Provider,
-		Model:   l.config.Model.Name,
+		Model:    l.config.Model.Name,
 	}
 
 	// Track partial state
@@ -228,7 +232,7 @@ func (l *AgentLoop) streamResponse(llmCtx ai.Context, emit AgentEventCallback) (
 
 		case "toolcall_start":
 			emit(AgentEvent{
-				Type:    "toolcall_start",
+				Type:         "toolcall_start",
 				ContentIndex: event.ContentIndex,
 			})
 
@@ -244,8 +248,8 @@ func (l *AgentLoop) streamResponse(llmCtx ai.Context, emit AgentEventCallback) (
 				msg.ToolCalls = currentToolCalls
 
 				emit(AgentEvent{
-					Type:      "toolcall_end",
-					ToolCall:  event.ToolCall,
+					Type:     "toolcall_end",
+					ToolCall: event.ToolCall,
 				})
 			}
 
@@ -401,15 +405,15 @@ func (l *AgentLoop) executeToolCalls(msg AgentMessage, emit AgentEventCallback) 
 }
 
 func (l *AgentLoop) extractNewMessages() []AgentMessage {
-	// Return only the messages from the current run
-	// This is a simplified approach - in practice we'd track the initial message count
-	return l.context.Messages
+	if l.initialMessageCount < 0 || l.initialMessageCount > len(l.context.Messages) {
+		return append([]AgentMessage(nil), l.context.Messages...)
+	}
+	return append([]AgentMessage(nil), l.context.Messages[l.initialMessageCount:]...)
 }
 
 // defaultStreamFn is the default streaming function that uses the AI registry.
 func defaultStreamFn(model ai.Model, ctx ai.Context, options *ai.SimpleStreamOptions, callback ai.StreamEventCallback) error {
-	// This needs the registry - for now it's a placeholder
-	return &AgentError{Message: "no stream function configured"}
+	return providers.StreamSimple(model, ctx, options, callback)
 }
 
 // JSONSchemaTool generates a JSON schema for a simple tool.

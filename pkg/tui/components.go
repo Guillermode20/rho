@@ -50,8 +50,8 @@ func (s *Spacer) Render(width int) []string {
 }
 
 func (s *Spacer) HandleInput(data string) {}
-func (s *Spacer) Invalidate()            {}
-func (s *Spacer) WantsKeyRelease() bool  { return false }
+func (s *Spacer) Invalidate()             {}
+func (s *Spacer) WantsKeyRelease() bool   { return false }
 
 // Box is a component that renders with a border around its child content.
 type Box struct {
@@ -134,10 +134,10 @@ func (b *Box) WantsKeyRelease() bool { return false }
 
 // Input is a single-line text input component.
 type Input struct {
-	value      []rune
-	cursorPos  int
-	focused    bool
-	onSubmit   func(value string)
+	value       []rune
+	cursorPos   int
+	focused     bool
+	onSubmit    func(value string)
 	placeholder string
 }
 
@@ -200,28 +200,6 @@ func (in *Input) Render(width int) []string {
 		displayContent += strings.Repeat(" ", contentWidth-contentW)
 	}
 
-	// Add cursor marker if focused
-	if in.focused {
-		// Calculate cursor visual position relative to visible text
-		visCursor := VisibleWidth(string(in.value[:in.cursorPos]))
-		visContent := VisibleWidth(string(in.value))
-		offset := max(0, visContent-contentWidth)
-		cursorOffset := visCursor - offset
-		if cursorOffset < 0 {
-			cursorOffset = 0
-		}
-		if cursorOffset >= len(displayContent) {
-			cursorOffset = len(displayContent) - 1
-		}
-		// Insert cursor marker
-		runes := []rune(displayContent)
-		if cursorOffset < len(runes) {
-			displayContent = string(runes[:cursorOffset]) + CursorMarker + string(runes[cursorOffset:])
-		} else {
-			displayContent = displayContent + CursorMarker
-		}
-	}
-
 	return []string{" " + displayContent + " "}
 }
 
@@ -258,14 +236,14 @@ func (in *Input) HandleInput(data string) {
 		in.cursorPos = len(in.value)
 	default:
 		// Printable characters
-		if len(data) == 1 && data[0] >= 0x20 && data[0] <= 0x7e {
-			r := rune(data[0])
-			newVal := make([]rune, 0, len(in.value)+1)
+		if isPrintableInput(data) {
+			runes := []rune(data)
+			newVal := make([]rune, 0, len(in.value)+len(runes))
 			newVal = append(newVal, in.value[:in.cursorPos]...)
-			newVal = append(newVal, r)
+			newVal = append(newVal, runes...)
 			newVal = append(newVal, in.value[in.cursorPos:]...)
 			in.value = newVal
-			in.cursorPos++
+			in.cursorPos += len(runes)
 		}
 	}
 }
@@ -273,3 +251,22 @@ func (in *Input) HandleInput(data string) {
 func (in *Input) Invalidate() {}
 
 func (in *Input) WantsKeyRelease() bool { return false }
+
+func isPrintableInput(data string) bool {
+	if data == "" {
+		return false
+	}
+	switch data {
+	case "tab", "esc", "up", "down", "pgup", "pgdown":
+		return false
+	}
+	if strings.Contains(data, "+") {
+		return false
+	}
+	for _, r := range data {
+		if r < 0x20 || r == 0x7f {
+			return false
+		}
+	}
+	return true
+}

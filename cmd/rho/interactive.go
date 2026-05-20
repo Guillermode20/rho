@@ -1,140 +1,853 @@
 package main
 
 import (
+	"errors"
 	"fmt"
 	"os"
-	"os/signal"
 	"path/filepath"
 	"strings"
-	"syscall"
 	"time"
 
+	tea "github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/lipgloss"
 	"github.com/earendil-works/rho/pkg/agent"
+	"github.com/earendil-works/rho/pkg/agent/auth"
+	"github.com/earendil-works/rho/pkg/agent/codecore"
 	"github.com/earendil-works/rho/pkg/agent/extensions"
+	agenttheme "github.com/earendil-works/rho/pkg/agent/theme"
 	"github.com/earendil-works/rho/pkg/agent/tools"
+	agentutils "github.com/earendil-works/rho/pkg/agent/utils"
 	"github.com/earendil-works/rho/pkg/ai"
 	"github.com/earendil-works/rho/pkg/tui"
 )
 
-// InteractiveMode is the full TUI agent interface.
-type InteractiveMode struct {
-	tui            *tui.TUI
-	term           *tui.ProcessTerminal
-	input          *tui.Input
-	messages       *MessageList
-	agent          *agent.AgentLoop
-	config         *RuntimeConfig
-	status         *tui.Text
-	extRuntime     *extensions.Runtime
-	extCtx         extensions.ExtensionContext
-	sessionManager *agent.SessionManager
-	sessionID      string
-}
-
 // RuntimeConfig holds the runtime configuration.
 type RuntimeConfig struct {
-	Model        ai.Model
-	SystemPrompt string
-	APIKey       string
-	Provider     ai.Provider
-	CWD          string
-	ExtDirs      []string
+	Model          ai.Model
+	SystemPrompt   string
+	APIKey         string
+	Provider       ai.Provider
+	CWD            string
+	ExtDirs        []string
+	AuthStorage    *auth.AuthStorage
+	Settings       *codecore.SettingsManager
+	ThemeManager   *agenttheme.ThemeManager
+	ClipboardWrite func(text string) error
 }
 
-// MessageList displays conversation messages.
-type MessageList struct {
+type chatModel struct {
+	width    int
+	height   int
+	status   string
+	input    []rune
+	cursor   int
+	scroll   int
 	messages []agent.AgentMessage
 	theme    tui.MarkdownTheme
+
+	onSubmit          func(string)
+	onMessage         func(tea.Msg)
+	onAutocomplete    func(text string, cursor int) []autocompleteItem
+	onAction          func(action string) bool
+	autocomplete      []autocompleteItem
+	autocompleteIdx   int
+	selectorTitle     string
+	selectorAllItems  []autocompleteItem
+	selectorItems     []autocompleteItem
+	selectorIdx       int
+	selectorQuery     []rune
+	onSelectorSelect  func(autocompleteItem)
+	onSelectorCancel  func()
+	promptTitle       string
+	promptPlaceholder string
+	promptValue       []rune
+	onPromptSubmit    func(string)
+	onPromptCancel    func()
+
+	statusStyle    lipgloss.Style
+	helpStyle      lipgloss.Style
+	panelStyle     lipgloss.Style
+	inputStyle     lipgloss.Style
+	userStyle      lipgloss.Style
+	assistantStyle lipgloss.Style
+	mutedStyle     lipgloss.Style
 }
 
-func NewMessageList() *MessageList {
-	return &MessageList{
-		theme: tui.DefaultMarkdownTheme(),
+type autocompleteItem struct {
+	Value       string
+	Label       string
+	Description string
+}
+
+type uiSelectRequestMsg struct {
+	Title   string
+	Options []string
+	Resp    chan uiStringResponse
+}
+
+type uiConfirmRequestMsg struct {
+	Title   string
+	Message string
+	Resp    chan uiBoolResponse
+}
+
+type uiInputRequestMsg struct {
+	Title       string
+	Placeholder string
+	Resp        chan uiStringResponse
+}
+
+type uiStringResponse struct {
+	Value string
+	Err   error
+}
+
+type uiBoolResponse struct {
+	Value bool
+	Err   error
+}
+
+type AgentExtensionStatusMsg struct {
+	Key  string
+	Text string
+}
+
+func newChatModel(status string) *chatModel {
+	return &chatModel{
+		status: status,
+		theme:  tui.DefaultMarkdownTheme(),
+		statusStyle: lipgloss.NewStyle().
+			Background(lipgloss.Color("235")).
+			Foreground(lipgloss.Color("255")).
+			Padding(0, 1),
+		helpStyle: lipgloss.NewStyle().
+			Foreground(lipgloss.Color("244")).
+			Padding(0, 1),
+		panelStyle: lipgloss.NewStyle().
+			Border(lipgloss.NormalBorder(), true, false, false, false).
+			BorderForeground(lipgloss.Color("238")).
+			Padding(1, 2, 0, 2),
+		inputStyle: lipgloss.NewStyle().
+			Border(lipgloss.NormalBorder()).
+			BorderForeground(lipgloss.Color("63")).
+			Padding(0, 1),
+		userStyle: lipgloss.NewStyle().
+			Foreground(lipgloss.Color("75")).
+			Bold(true),
+		assistantStyle: lipgloss.NewStyle().
+			Foreground(lipgloss.Color("120")).
+			Bold(true),
+		mutedStyle: lipgloss.NewStyle().Foreground(lipgloss.Color("242")),
 	}
 }
 
-func (ml *MessageList) AddMessage(msg agent.AgentMessage) {
-	ml.messages = append(ml.messages, msg)
+func (m *chatModel) ApplyTheme(theme agenttheme.Theme) {
+	bg := lipgloss.Color(themeColor(theme, "bg", "235"))
+	fg := lipgloss.Color(themeColor(theme, "fg", "255"))
+	accent := lipgloss.Color(themeColor(theme, "accent", "63"))
+	success := lipgloss.Color(themeColor(theme, "success", "120"))
+	subtle := lipgloss.Color(themeColor(theme, "subtle", "242"))
+
+	m.statusStyle = lipgloss.NewStyle().
+		Background(bg).
+		Foreground(fg).
+		Padding(0, 1)
+	m.helpStyle = lipgloss.NewStyle().
+		Foreground(subtle).
+		Padding(0, 1)
+	m.panelStyle = lipgloss.NewStyle().
+		Border(lipgloss.NormalBorder(), true, false, false, false).
+		BorderForeground(subtle).
+		Padding(1, 2, 0, 2)
+	m.inputStyle = lipgloss.NewStyle().
+		Border(lipgloss.NormalBorder()).
+		BorderForeground(accent).
+		Padding(0, 1)
+	m.userStyle = lipgloss.NewStyle().
+		Foreground(success).
+		Bold(true)
+	m.assistantStyle = lipgloss.NewStyle().
+		Foreground(accent).
+		Bold(true)
+	m.mutedStyle = lipgloss.NewStyle().Foreground(subtle)
+	m.theme = markdownThemeFromAgentTheme(theme)
 }
 
-func (ml *MessageList) Render(width int) []string {
+func themeColor(theme agenttheme.Theme, key, fallback string) string {
+	color, ok := theme.Colors[key]
+	if !ok {
+		return fallback
+	}
+	if color.Hex != "" {
+		return color.Hex
+	}
+	if color.ANSI != 0 {
+		return fmt.Sprintf("%d", color.ANSI)
+	}
+	return fallback
+}
+
+func markdownThemeFromAgentTheme(theme agenttheme.Theme) tui.MarkdownTheme {
+	reset := agenttheme.Reset()
+	style := func(name, fallback string) string {
+		if theme.Styles != nil {
+			if value := theme.Styles[name]; value != "" {
+				return value
+			}
+		}
+		return fallback
+	}
+	title := style("title", "\x1b[1;36m")
+	bold := style("bold", "\x1b[1m")
+	italic := style("italic", "\x1b[2m")
+	code := style("code", "\x1b[33m")
+	codeBlock := style("codeblock", code)
+	link := style("link", "\x1b[34m")
+	dim := style("dim", "\x1b[2m")
+	separator := style("separator", dim)
+
+	return tui.MarkdownTheme{
+		H1:         func(text string) string { return title + text + reset },
+		H2:         func(text string) string { return title + text + reset },
+		H3:         func(text string) string { return title + text + reset },
+		Bold:       func(text string) string { return bold + text + reset },
+		Italic:     func(text string) string { return italic + text + reset },
+		Code:       func(text string) string { return code + text + reset },
+		CodeBlock:  func(text string) string { return codeBlock + text + reset },
+		Link:       func(text, url string) string { return link + text + reset + dim + " (" + url + ")" + reset },
+		Blockquote: func(text string) string { return dim + "|" + text + reset },
+		ListBullet: func(text string) string { return "- " + text },
+		ListNumber: func(text string) string { return text },
+		Horizontal: func() string { return separator + strings.Repeat("-", 40) + reset },
+	}
+}
+
+func (m *chatModel) Init() tea.Cmd {
+	return tea.WindowSize()
+}
+
+func (m *chatModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+	if m.onMessage != nil {
+		m.onMessage(msg)
+	}
+
+	switch msg := msg.(type) {
+	case tea.WindowSizeMsg:
+		m.width = msg.Width
+		m.height = msg.Height
+		m.clampScroll()
+	case tea.KeyMsg:
+		if m.promptTitle != "" {
+			switch msg.String() {
+			case "esc":
+				m.cancelPrompt()
+				return m, nil
+			case "enter":
+				m.applyPrompt()
+				return m, nil
+			case "backspace", "ctrl+h":
+				if len(m.promptValue) > 0 {
+					m.promptValue = m.promptValue[:len(m.promptValue)-1]
+				}
+				return m, nil
+			case "ctrl+u":
+				m.promptValue = nil
+				return m, nil
+			default:
+				if msg.Type == tea.KeyRunes {
+					m.promptValue = append(m.promptValue, msg.Runes...)
+					return m, nil
+				}
+				if msg.Type == tea.KeySpace {
+					m.promptValue = append(m.promptValue, ' ')
+					return m, nil
+				}
+			}
+			return m, nil
+		}
+
+		if len(m.selectorAllItems) > 0 {
+			switch msg.String() {
+			case "esc":
+				m.cancelSelector()
+				return m, nil
+			case "up", "ctrl+p":
+				if m.selectorIdx > 0 {
+					m.selectorIdx--
+				}
+				return m, nil
+			case "down", "ctrl+n":
+				if m.selectorIdx < len(m.selectorItems)-1 {
+					m.selectorIdx++
+				}
+				return m, nil
+			case "enter":
+				m.applySelector()
+				return m, nil
+			case "backspace", "ctrl+h":
+				if len(m.selectorQuery) > 0 {
+					m.selectorQuery = m.selectorQuery[:len(m.selectorQuery)-1]
+					m.updateSelectorFilter()
+				}
+				return m, nil
+			case "ctrl+u":
+				m.selectorQuery = nil
+				m.updateSelectorFilter()
+				return m, nil
+			default:
+				if msg.Type == tea.KeyRunes {
+					m.selectorQuery = append(m.selectorQuery, msg.Runes...)
+					m.updateSelectorFilter()
+					return m, nil
+				}
+				if msg.Type == tea.KeySpace {
+					m.selectorQuery = append(m.selectorQuery, ' ')
+					m.updateSelectorFilter()
+					return m, nil
+				}
+			}
+			return m, nil
+		}
+
+		if len(m.autocomplete) > 0 {
+			switch msg.String() {
+			case "esc":
+				m.closeAutocomplete()
+				return m, nil
+			case "up", "ctrl+p":
+				if m.autocompleteIdx > 0 {
+					m.autocompleteIdx--
+				}
+				return m, nil
+			case "down", "ctrl+n":
+				if m.autocompleteIdx < len(m.autocomplete)-1 {
+					m.autocompleteIdx++
+				}
+				return m, nil
+			case "tab", "enter":
+				m.applyAutocomplete()
+				return m, nil
+			}
+		}
+
+		if m.onAction != nil {
+			switch msg.String() {
+			case "ctrl+l":
+				if m.onAction("model.select") {
+					return m, nil
+				}
+			case "ctrl+p":
+				if m.onAction("settings.open") {
+					return m, nil
+				}
+			case "ctrl+r":
+				if m.onAction("session.resume") {
+					return m, nil
+				}
+			case "ctrl+t":
+				if m.onAction("thinking.cycle") {
+					return m, nil
+				}
+			}
+		}
+
+		switch msg.String() {
+		case "ctrl+c":
+			return m, tea.Quit
+		case "pgup":
+			m.scroll += max(1, m.viewportHeight()-1)
+			m.clampScroll()
+		case "pgdown":
+			m.scroll -= max(1, m.viewportHeight()-1)
+			m.clampScroll()
+		case "ctrl+a", "home":
+			m.cursor = 0
+			m.updateAutocomplete()
+		case "ctrl+e", "end":
+			m.cursor = len(m.input)
+			m.updateAutocomplete()
+		case "ctrl+u":
+			m.input = nil
+			m.cursor = 0
+			m.updateAutocomplete()
+		case "ctrl+k":
+			if m.cursor < len(m.input) {
+				m.input = m.input[:m.cursor]
+			}
+			m.updateAutocomplete()
+		case "left":
+			if m.cursor > 0 {
+				m.cursor--
+			}
+			m.updateAutocomplete()
+		case "right":
+			if m.cursor < len(m.input) {
+				m.cursor++
+			}
+			m.updateAutocomplete()
+		case "backspace", "ctrl+h":
+			if m.cursor > 0 {
+				m.input = append(m.input[:m.cursor-1], m.input[m.cursor:]...)
+				m.cursor--
+			}
+			m.updateAutocomplete()
+		case "delete":
+			if m.cursor < len(m.input) {
+				m.input = append(m.input[:m.cursor], m.input[m.cursor+1:]...)
+			}
+			m.updateAutocomplete()
+		case "alt+enter", "ctrl+j":
+			m.insertRunes('\n')
+		case "enter":
+			value := strings.TrimSpace(string(m.input))
+			if value != "" && m.onSubmit != nil {
+				m.onSubmit(value)
+			}
+		default:
+			if msg.Type == tea.KeyRunes {
+				m.insertRunes(msg.Runes...)
+			} else if msg.Type == tea.KeySpace {
+				m.insertRunes(' ')
+			}
+		}
+	}
+
+	return m, nil
+}
+
+func (m *chatModel) View() string {
+	width := m.width
 	if width <= 0 {
-		return nil
+		width = 80
 	}
 
-	var lines []string
-	theme := ml.theme
+	status := m.statusStyle.Width(width).Render(tui.SliceByColumn(m.status, 0, max(1, width-2), true))
+	help := m.helpStyle.Width(width).Render("Enter send  Alt+Enter newline  PgUp/PgDn scroll  Ctrl+C quit")
+	input := m.renderInput(width)
+	if prompt := m.renderPrompt(width); prompt != "" {
+		input = prompt
+	}
+	if selector := m.renderSelector(width); selector != "" {
+		input = selector
+	}
+	viewport := m.renderTranscript(width, m.viewportHeight())
+	if suggestions := m.renderAutocomplete(width); suggestions != "" {
+		return lipgloss.JoinVertical(lipgloss.Left, status, help, viewport, input, suggestions)
+	}
 
-	for _, msg := range ml.messages {
+	return lipgloss.JoinVertical(lipgloss.Left, status, help, viewport, input)
+}
+
+func (m *chatModel) AddMessage(msg agent.AgentMessage) {
+	m.messages = append(m.messages, msg)
+	m.scroll = 0
+}
+
+func (m *chatModel) Snapshot() []agent.AgentMessage {
+	return append([]agent.AgentMessage(nil), m.messages...)
+}
+
+func (m *chatModel) SetStatus(status string) {
+	m.status = status
+}
+
+func (m *chatModel) ClearInput() {
+	m.input = nil
+	m.cursor = 0
+	m.closeAutocomplete()
+}
+
+func (m *chatModel) OpenSelector(title string, items []autocompleteItem, onSelect func(autocompleteItem), onCancel func()) {
+	m.selectorTitle = title
+	m.selectorAllItems = append([]autocompleteItem(nil), items...)
+	m.selectorItems = append([]autocompleteItem(nil), items...)
+	m.selectorIdx = 0
+	m.selectorQuery = nil
+	m.onSelectorSelect = onSelect
+	m.onSelectorCancel = onCancel
+	m.closeAutocomplete()
+	m.closePrompt()
+}
+
+func (m *chatModel) OpenPrompt(title, placeholder string, onSubmit func(string), onCancel func()) {
+	m.promptTitle = title
+	m.promptPlaceholder = placeholder
+	m.promptValue = nil
+	m.onPromptSubmit = onSubmit
+	m.onPromptCancel = onCancel
+	m.closeAutocomplete()
+	m.closeSelector()
+}
+
+func (m *chatModel) insertRunes(runes ...rune) {
+	next := make([]rune, 0, len(m.input)+len(runes))
+	next = append(next, m.input[:m.cursor]...)
+	next = append(next, runes...)
+	next = append(next, m.input[m.cursor:]...)
+	m.input = next
+	m.cursor += len(runes)
+	m.updateAutocomplete()
+}
+
+func (m *chatModel) viewportHeight() int {
+	if m.height <= 0 {
+		return 20
+	}
+	inputLines := len(strings.Split(m.inputTextWithCursor(false), "\n")) + 2
+	return max(3, m.height-2-inputLines-m.autocompleteHeight()-m.selectorHeight()-m.promptHeight())
+}
+
+func (m *chatModel) renderTranscript(width, height int) string {
+	lines := m.renderMessages(width)
+	if height <= 0 {
+		return ""
+	}
+	if len(lines) == 0 {
+		lines = m.renderEmptyState(width)
+	}
+
+	maxScroll := max(0, len(lines)-height)
+	if m.scroll > maxScroll {
+		m.scroll = maxScroll
+	}
+	start := max(0, len(lines)-height-m.scroll)
+	end := min(len(lines), start+height)
+	view := append([]string(nil), lines[start:end]...)
+	for len(view) < height {
+		view = append(view, "")
+	}
+	return strings.Join(view, "\n")
+}
+
+func (m *chatModel) renderEmptyState(width int) []string {
+	boxWidth := min(72, max(24, width-8))
+	title := m.assistantStyle.Render("rho is ready")
+	lines := []string{
+		title,
+		"",
+		"Start a coding task, ask a question, or run a slash command.",
+		m.mutedStyle.Render("The transcript stays here; your input is pinned below."),
+	}
+	rendered := m.panelStyle.Width(boxWidth).Render(strings.Join(lines, "\n"))
+	return strings.Split(rendered, "\n")
+}
+
+func (m *chatModel) renderMessages(width int) []string {
+	var lines []string
+	contentWidth := max(20, width-4)
+	for _, msg := range m.messages {
 		if msg.Hide {
 			continue
 		}
-
-		if msg.Role == ai.RoleUser {
-			lines = append(lines, "")
-			lines = append(lines, theme.H2("You:")+"\x1b[0m")
-			md := tui.NewMarkdown(msg.Content, theme)
-			contentLines := md.Render(width - 4)
-			for _, l := range contentLines {
-				if l != "" {
-					lines = append(lines, "  "+l)
-				}
+		switch msg.Role {
+		case ai.RoleUser:
+			lines = append(lines, "", m.userStyle.Render("You"))
+			lines = append(lines, indentLines(tui.NewMarkdown(msg.Content, m.theme).Render(contentWidth), "  ")...)
+		case ai.RoleAssistant:
+			name := msg.Model
+			if name == "" {
+				name = "Assistant"
 			}
-		} else if msg.Role == ai.RoleAssistant {
-			modelName := msg.Model
-			if modelName == "" {
-				modelName = "Assistant"
-			}
-			lines = append(lines, "")
-			lines = append(lines, theme.H2(modelName+":")+"\x1b[0m")
-
+			lines = append(lines, "", m.assistantStyle.Render(name))
 			if msg.Content != "" {
-				md := tui.NewMarkdown(msg.Content, theme)
-				contentLines := md.Render(width - 4)
-				for _, l := range contentLines {
-					if l != "" {
-						lines = append(lines, "  "+l)
-					}
-				}
+				lines = append(lines, indentLines(tui.NewMarkdown(msg.Content, m.theme).Render(contentWidth), "  ")...)
 			}
-
 			for _, tc := range msg.ToolCalls {
-				argsJSON := fmt.Sprintf("%v", tc.Arguments)
-				lines = append(lines, "  🔧 "+theme.Code(tc.Name+": "+argsJSON)+"\x1b[0m")
+				lines = append(lines, "  "+m.mutedStyle.Render("tool "+tc.Name))
 			}
-
+			if msg.ToolName != "" && msg.Content != "" && msg.Role == ai.RoleToolResult {
+				lines = append(lines, "  "+m.mutedStyle.Render("tool "+msg.ToolName))
+			}
 			if msg.ErrorMessage != "" {
-				lines = append(lines, "  ⚠ "+theme.Code("Error: "+msg.ErrorMessage)+"\x1b[0m")
+				lines = append(lines, "  "+tui.DefaultMarkdownTheme().Code("Error: "+msg.ErrorMessage))
 			}
-		} else if msg.Role == ai.RoleToolResult {
-			lines = append(lines, "  ["+msg.ToolName+"]")
-			content := strings.Split(msg.Content, "\n")
-			maxLines := 2
-			if len(content) > maxLines {
-				content = content[:maxLines]
+		case ai.RoleToolResult:
+			title := "tool"
+			if msg.ToolName != "" {
+				title = "tool " + msg.ToolName
 			}
-			for _, l := range content {
-				truncated := l
-				if tui.VisibleWidth(truncated) > width-8 {
-					truncated = tui.SliceByColumn(truncated, 0, width-8, true)
-				}
-				lines = append(lines, "  "+truncated)
+			lines = append(lines, "", m.mutedStyle.Render(title))
+			contentLines := strings.Split(strings.TrimSpace(msg.Content), "\n")
+			if len(contentLines) > 4 {
+				contentLines = append(contentLines[:4], "...")
+			}
+			for _, line := range contentLines {
+				lines = append(lines, "  "+tui.SliceByColumn(line, 0, contentWidth, true))
 			}
 		}
 	}
-
 	return lines
 }
 
-func (ml *MessageList) HandleInput(data string) {}
-func (ml *MessageList) Invalidate()            {}
-func (ml *MessageList) WantsKeyRelease() bool  { return false }
+func (m *chatModel) renderInput(width int) string {
+	text := m.inputTextWithCursor(true)
+	if len(m.input) == 0 {
+		text = m.mutedStyle.Render("Type your message...")
+	}
+	return m.inputStyle.Width(max(1, width-4)).Render(text)
+}
+
+func (m *chatModel) renderAutocomplete(width int) string {
+	if len(m.autocomplete) == 0 || width <= 0 {
+		return ""
+	}
+
+	maxVisible := min(len(m.autocomplete), 6)
+	start := max(0, min(m.autocompleteIdx-maxVisible/2, len(m.autocomplete)-maxVisible))
+	end := min(start+maxVisible, len(m.autocomplete))
+	lines := make([]string, 0, end-start)
+	for i := start; i < end; i++ {
+		item := m.autocomplete[i]
+		prefix := "  "
+		if i == m.autocompleteIdx {
+			prefix = "> "
+		}
+		line := prefix + item.Label
+		if item.Description != "" && width > 44 {
+			descMax := width - tui.VisibleWidth(line) - 3
+			if descMax > 8 {
+				desc := tui.SliceByColumn(strings.ReplaceAll(item.Description, "\n", " "), 0, descMax, true)
+				line += strings.Repeat(" ", max(1, width-tui.VisibleWidth(line)-tui.VisibleWidth(desc)-1)) + m.mutedStyle.Render(desc)
+			}
+		}
+		lines = append(lines, tui.SliceByColumn(line, 0, width, true))
+	}
+	return strings.Join(lines, "\n")
+}
+
+func (m *chatModel) renderSelector(width int) string {
+	if len(m.selectorAllItems) == 0 || width <= 0 {
+		return ""
+	}
+	maxVisible := min(len(m.selectorItems), 8)
+	start := max(0, min(m.selectorIdx-maxVisible/2, len(m.selectorItems)-maxVisible))
+	end := min(start+maxVisible, len(m.selectorItems))
+	lines := []string{m.assistantStyle.Render(m.selectorTitle)}
+	query := string(m.selectorQuery)
+	if query == "" {
+		lines = append(lines, m.mutedStyle.Render("Filter:"))
+	} else {
+		lines = append(lines, "Filter: "+query)
+	}
+	if len(m.selectorItems) == 0 {
+		lines = append(lines, m.mutedStyle.Render("No matches"))
+	}
+	for i := start; i < end; i++ {
+		item := m.selectorItems[i]
+		prefix := "  "
+		if i == m.selectorIdx {
+			prefix = "> "
+		}
+		line := prefix + item.Label
+		if item.Description != "" && width > 44 {
+			descMax := width - tui.VisibleWidth(line) - 3
+			if descMax > 8 {
+				desc := tui.SliceByColumn(strings.ReplaceAll(item.Description, "\n", " "), 0, descMax, true)
+				line += strings.Repeat(" ", max(1, width-tui.VisibleWidth(line)-tui.VisibleWidth(desc)-1)) + m.mutedStyle.Render(desc)
+			}
+		}
+		lines = append(lines, tui.SliceByColumn(line, 0, width, true))
+	}
+	lines = append(lines, m.mutedStyle.Render("Type filter  Enter select  Esc cancel"))
+	return m.inputStyle.Width(max(1, width-4)).Render(strings.Join(lines, "\n"))
+}
+
+func (m *chatModel) renderPrompt(width int) string {
+	if m.promptTitle == "" || width <= 0 {
+		return ""
+	}
+	value := string(m.promptValue)
+	if value == "" && m.promptPlaceholder != "" {
+		value = m.mutedStyle.Render(m.promptPlaceholder)
+	}
+	lines := []string{
+		m.assistantStyle.Render(m.promptTitle),
+		value,
+		m.mutedStyle.Render("Enter submit  Esc cancel"),
+	}
+	return m.inputStyle.Width(max(1, width-4)).Render(strings.Join(lines, "\n"))
+}
+
+func (m *chatModel) autocompleteHeight() int {
+	if len(m.autocomplete) == 0 {
+		return 0
+	}
+	return min(len(m.autocomplete), 6)
+}
+
+func (m *chatModel) selectorHeight() int {
+	if len(m.selectorAllItems) == 0 {
+		return 0
+	}
+	return min(len(m.selectorItems), 8) + 4
+}
+
+func (m *chatModel) promptHeight() int {
+	if m.promptTitle == "" {
+		return 0
+	}
+	return 3
+}
+
+func (m *chatModel) inputTextWithCursor(showCursor bool) string {
+	value := append([]rune(nil), m.input...)
+	if showCursor {
+		cursor := m.cursor
+		if cursor < 0 {
+			cursor = 0
+		}
+		if cursor > len(value) {
+			cursor = len(value)
+		}
+		value = append(value[:cursor], append([]rune{'▏'}, value[cursor:]...)...)
+	}
+	return string(value)
+}
+
+func (m *chatModel) clampScroll() {
+	maxScroll := max(0, len(m.renderMessages(max(20, m.width)))-m.viewportHeight())
+	if m.scroll > maxScroll {
+		m.scroll = maxScroll
+	}
+	if m.scroll < 0 {
+		m.scroll = 0
+	}
+}
+
+func (m *chatModel) updateAutocomplete() {
+	if m.onAutocomplete == nil {
+		m.closeAutocomplete()
+		return
+	}
+	items := m.onAutocomplete(string(m.input), m.cursor)
+	m.autocomplete = items
+	if len(items) == 0 {
+		m.autocompleteIdx = 0
+		return
+	}
+	if m.autocompleteIdx >= len(items) {
+		m.autocompleteIdx = len(items) - 1
+	}
+}
+
+func (m *chatModel) closeAutocomplete() {
+	m.autocomplete = nil
+	m.autocompleteIdx = 0
+}
+
+func (m *chatModel) closeSelector() {
+	m.selectorTitle = ""
+	m.selectorAllItems = nil
+	m.selectorItems = nil
+	m.selectorIdx = 0
+	m.selectorQuery = nil
+	m.onSelectorSelect = nil
+	m.onSelectorCancel = nil
+}
+
+func (m *chatModel) closePrompt() {
+	m.promptTitle = ""
+	m.promptPlaceholder = ""
+	m.promptValue = nil
+	m.onPromptSubmit = nil
+	m.onPromptCancel = nil
+}
+
+func (m *chatModel) updateSelectorFilter() {
+	query := strings.ToLower(strings.TrimSpace(string(m.selectorQuery)))
+	m.selectorItems = m.selectorItems[:0]
+	for _, item := range m.selectorAllItems {
+		haystack := strings.ToLower(item.Value + " " + item.Label + " " + item.Description)
+		if query == "" || strings.Contains(haystack, query) {
+			m.selectorItems = append(m.selectorItems, item)
+		}
+	}
+	if m.selectorIdx >= len(m.selectorItems) {
+		m.selectorIdx = max(0, len(m.selectorItems)-1)
+	}
+}
+
+func (m *chatModel) cancelSelector() {
+	onCancel := m.onSelectorCancel
+	m.closeSelector()
+	if onCancel != nil {
+		onCancel()
+	}
+}
+
+func (m *chatModel) applySelector() {
+	if len(m.selectorItems) == 0 || m.selectorIdx >= len(m.selectorItems) {
+		return
+	}
+	item := m.selectorItems[m.selectorIdx]
+	onSelect := m.onSelectorSelect
+	m.closeSelector()
+	if onSelect != nil {
+		onSelect(item)
+	}
+}
+
+func (m *chatModel) cancelPrompt() {
+	onCancel := m.onPromptCancel
+	m.closePrompt()
+	if onCancel != nil {
+		onCancel()
+	}
+}
+
+func (m *chatModel) applyPrompt() {
+	value := string(m.promptValue)
+	onSubmit := m.onPromptSubmit
+	m.closePrompt()
+	if onSubmit != nil {
+		onSubmit(value)
+	}
+}
+
+func (m *chatModel) applyAutocomplete() {
+	if len(m.autocomplete) == 0 || m.autocompleteIdx >= len(m.autocomplete) {
+		return
+	}
+	item := m.autocomplete[m.autocompleteIdx]
+	text := string(m.input)
+	replacement := item.Value
+	if strings.HasPrefix(text, "/") && !strings.Contains(strings.TrimSpace(text), " ") {
+		replacement += " "
+	}
+	m.input = []rune(replacement)
+	m.cursor = len(m.input)
+	m.closeAutocomplete()
+}
+
+func indentLines(lines []string, prefix string) []string {
+	out := make([]string, 0, len(lines))
+	for _, line := range lines {
+		if line == "" {
+			out = append(out, "")
+			continue
+		}
+		out = append(out, prefix+line)
+	}
+	return out
+}
+
+// InteractiveMode is the full TUI agent interface.
+type InteractiveMode struct {
+	program              *tea.Program
+	ui                   *chatModel
+	agent                *agent.AgentLoop
+	config               *RuntimeConfig
+	extRuntime           *extensions.Runtime
+	extCtx               extensions.ExtensionContext
+	sessionManager       *agent.SessionManager
+	slashCommands        *codecore.SlashCommandManager
+	sessionID            string
+	pendingLoginProvider string
+	extensionStatuses    map[string]string
+}
 
 // NewInteractiveMode creates a new interactive mode.
 func NewInteractiveMode(cfg *RuntimeConfig) *InteractiveMode {
-	term := tui.NewProcessTerminal()
-	t := tui.NewTUI(term)
-
 	// Create extension runtime
 	extRuntime := extensions.NewRuntime()
 
@@ -145,15 +858,7 @@ func NewInteractiveMode(cfg *RuntimeConfig) *InteractiveMode {
 		ExtensionRuntime: extRuntime,
 		Abort:            nil, // set when agent loop is created
 		Shutdown: func() {
-			t.Stop()
 			os.Exit(0)
-		},
-		UI: extensions.ExtensionUIContext{
-			Select:  func(title string, options []string) (string, error) { return "", nil },
-			Confirm: func(title, message string) (bool, error) { return true, nil },
-			Input:   func(title, placeholder string) (string, error) { return "", nil },
-			Notify:  func(message string, msgType string) {},
-			SetStatus: func(key, text string) {},
 		},
 	}
 
@@ -171,61 +876,177 @@ func NewInteractiveMode(cfg *RuntimeConfig) *InteractiveMode {
 	// Create session manager
 	rhoDir := filepath.Join(os.Getenv("HOME"), ".rho")
 	sessionMgr := agent.NewSessionManager(filepath.Join(rhoDir, "sessions"))
-
-	return &InteractiveMode{
-		tui:            t,
-		term:           term,
-		input:          tui.NewInput(),
-		config:         cfg,
-		extRuntime:     extRuntime,
-		extCtx:         extCtx,
-		sessionManager: sessionMgr,
-		sessionID:      agent.CurrentSessionID(),
+	settingsMgr := cfg.Settings
+	if settingsMgr == nil {
+		settingsMgr = codecore.NewSettingsManager(filepath.Join(rhoDir, "settings"), cfg.CWD)
+		cfg.Settings = settingsMgr
 	}
+	themeMgr := cfg.ThemeManager
+	if themeMgr == nil {
+		themeMgr = agenttheme.NewThemeManager(filepath.Join(rhoDir, "themes"))
+		if err := themeMgr.LoadThemes(); err != nil {
+			fmt.Fprintf(os.Stderr, "Theme load error: %s\n", err)
+		}
+		cfg.ThemeManager = themeMgr
+	}
+	if selectedTheme := settingsMgr.GetString("theme"); selectedTheme != "" {
+		_ = themeMgr.SetActive(selectedTheme)
+	}
+
+	im := &InteractiveMode{
+		config:            cfg,
+		extRuntime:        extRuntime,
+		extCtx:            extCtx,
+		sessionManager:    sessionMgr,
+		slashCommands:     codecore.NewSlashCommandManager(),
+		sessionID:         agent.CurrentSessionID(),
+		extensionStatuses: make(map[string]string),
+	}
+
+	// Set up UI on the BTModel
+	im.setupUI()
+	im.extCtx.UI = im.extensionUIContext()
+
+	return im
 }
 
 // Run starts the interactive mode.
 func (im *InteractiveMode) Run() error {
-	im.setupUI()
-	im.setupSignalHandling()
+	defer im.extCtx.ExtensionRuntime.FireSessionShutdown(im.extCtx, extensions.SessionShutdownEvent{
+		Reason: extensions.SessionQuit,
+	})
 
 	// Fire session start
 	im.extCtx.ExtensionRuntime.FireSessionStart(im.extCtx, extensions.SessionStartEvent{
 		Type: extensions.SessionStartup,
 	})
 
-	im.tui.Start()
-
-	// Block until TUI stops (signal handler calls os.Exit)
-	<-make(chan struct{})
-	return nil
+	// Start Bubble Tea program (blocks until quit)
+	_, err := im.program.Run()
+	return err
 }
 
 func (im *InteractiveMode) setupUI() {
-	im.status = tui.NewText(fmt.Sprintf("rho | %s/%s | %s",
-		im.config.Provider, im.config.Model.Name, shortenPath(im.config.CWD)))
-	im.tui.AddChild(im.status)
-	im.tui.AddChild(tui.NewSpacer(1))
-
-	im.messages = NewMessageList()
-	im.tui.AddChild(im.messages)
-
-	im.tui.AddChild(tui.NewText("\x1b[2m" + strings.Repeat("─", 60) + "\x1b[0m"))
-
-	im.input.SetPlaceholder("Type your message...")
-	im.input.SetOnSubmit(func(value string) {
+	status := im.statusText("")
+	im.ui = newChatModel(status)
+	im.applyActiveTheme()
+	im.ui.onMessage = func(msg tea.Msg) {
+		im.handleCustomMessage(msg)
+	}
+	im.ui.onSubmit = func(value string) {
 		im.handleSubmit(value)
-	})
-	im.input.SetFocused(true)
-	im.tui.SetFocus(im.input)
-	im.tui.AddChild(im.input)
+	}
+	im.ui.onAutocomplete = func(text string, cursor int) []autocompleteItem {
+		return im.autocomplete(text, cursor)
+	}
+	im.ui.onAction = func(action string) bool {
+		return im.handleAppAction(action)
+	}
+	im.program = tea.NewProgram(im.ui, tea.WithAltScreen())
 
+	im.addWelcomeMessage()
+}
+
+func (im *InteractiveMode) handleAppAction(action string) bool {
+	switch action {
+	case "model.select":
+		im.ui.ClearInput()
+		im.showModelSelector("")
+		return true
+	case "settings.open":
+		im.ui.ClearInput()
+		im.showSettingsSelector()
+		return true
+	case "session.resume":
+		im.ui.ClearInput()
+		im.showSessionSelector("Resume session")
+		return true
+	case "thinking.cycle":
+		current := im.settingString("thinkingLevel", "off")
+		next := nextThinkingLevel(current)
+		im.setUserSetting("thinkingLevel", next)
+		im.addSystemMessage(fmt.Sprintf("Thinking level: %s", next))
+		return true
+	}
+	return false
+}
+
+func (im *InteractiveMode) addWelcomeMessage() {
 	welcome := "rho v" + version + " — Your local coding agent\nType a message and press Enter to start. Ctrl+C to quit."
-	im.messages.AddMessage(agent.AgentMessage{
+	im.ui.AddMessage(agent.AgentMessage{
 		Role:    ai.RoleAssistant,
 		Content: welcome,
 		Model:   "rho",
 	})
+}
+
+func (im *InteractiveMode) extensionUIContext() extensions.ExtensionUIContext {
+	return extensions.ExtensionUIContext{
+		Select:    im.extensionSelect,
+		Confirm:   im.extensionConfirm,
+		Input:     im.extensionInput,
+		Notify:    im.extensionNotify,
+		SetStatus: im.extensionSetStatus,
+	}
+}
+
+func (im *InteractiveMode) extensionSelect(title string, options []string) (string, error) {
+	if im.program == nil {
+		return "", errors.New("extension UI is not running")
+	}
+	resp := make(chan uiStringResponse, 1)
+	im.program.Send(uiSelectRequestMsg{Title: title, Options: options, Resp: resp})
+	result := <-resp
+	return result.Value, result.Err
+}
+
+func (im *InteractiveMode) extensionConfirm(title, message string) (bool, error) {
+	if im.program == nil {
+		return false, errors.New("extension UI is not running")
+	}
+	resp := make(chan uiBoolResponse, 1)
+	im.program.Send(uiConfirmRequestMsg{Title: title, Message: message, Resp: resp})
+	result := <-resp
+	return result.Value, result.Err
+}
+
+func (im *InteractiveMode) extensionInput(title, placeholder string) (string, error) {
+	if im.program == nil {
+		return "", errors.New("extension UI is not running")
+	}
+	resp := make(chan uiStringResponse, 1)
+	im.program.Send(uiInputRequestMsg{Title: title, Placeholder: placeholder, Resp: resp})
+	result := <-resp
+	return result.Value, result.Err
+}
+
+func (im *InteractiveMode) extensionNotify(message string, msgType string) {
+	if strings.TrimSpace(message) == "" {
+		return
+	}
+	if im.program == nil {
+		im.addSystemMessage(message)
+		return
+	}
+	im.program.Send(tui.AddMessageMsg{
+		Role:    string(ai.RoleAssistant),
+		Content: message,
+		Model:   "rho",
+	})
+}
+
+func (im *InteractiveMode) extensionSetStatus(key, text string) {
+	if key == "" {
+		return
+	}
+	if im.program == nil {
+		if im.extensionStatuses == nil {
+			im.extensionStatuses = make(map[string]string)
+		}
+		im.extensionStatuses[key] = text
+		return
+	}
+	im.program.Send(AgentExtensionStatusMsg{Key: key, Text: text})
 }
 
 func (im *InteractiveMode) handleSubmit(value string) {
@@ -234,12 +1055,14 @@ func (im *InteractiveMode) handleSubmit(value string) {
 		return
 	}
 
-	// Check for slash commands (handled by extensions)
+	if im.pendingLoginProvider != "" {
+		im.handlePendingLogin(value)
+		return
+	}
+
+	// Check for slash commands.
 	if strings.HasPrefix(value, "/") {
-		parts := strings.Fields(value)
-		cmdName := strings.TrimPrefix(parts[0], "/")
-		cmdArgs := parts[1:]
-		if err := im.extRuntime.HandleSlashCommand(im.extCtx, cmdName, cmdArgs); err == nil {
+		if im.handleSlashCommand(value) {
 			return
 		}
 	}
@@ -250,12 +1073,11 @@ func (im *InteractiveMode) handleSubmit(value string) {
 		Source: "interactive",
 	})
 	if err != nil {
-		im.messages.AddMessage(agent.AgentMessage{
+		im.ui.AddMessage(agent.AgentMessage{
 			Role:    ai.RoleAssistant,
 			Content: fmt.Sprintf("Extension error: %v", err),
 			Model:   im.config.Model.Name,
 		})
-		im.tui.RequestRender(true)
 		return
 	}
 	if inputResult != nil && inputResult.Action == "handled" {
@@ -270,48 +1092,940 @@ func (im *InteractiveMode) handleSubmit(value string) {
 		Content:   value,
 		Timestamp: time.Now().UnixMilli(),
 	}
-	im.messages.AddMessage(userMsg)
-	im.input.SetValue("")
+	im.ui.AddMessage(userMsg)
+	turnMessages := im.ui.Snapshot()
+	im.ui.ClearInput()
 
-	im.status.SetContent(fmt.Sprintf("rho | %s/%s | Thinking...",
-		im.config.Provider, im.config.Model.Name))
-	im.tui.RequestRender(true)
+	im.ui.SetStatus(im.statusText("Thinking..."))
 
 	go func() {
 		// Fire agent start
 		im.extRuntime.FireAgentStart(im.extCtx)
 
-		agentMsg, err := im.runAgent(value)
+		agentMsg, newMessages, err := im.runAgent(value, turnMessages)
 		if err != nil {
-			im.messages.AddMessage(agent.AgentMessage{
-				Role:    ai.RoleAssistant,
+			im.program.Send(tui.AddMessageMsg{
+				Role:    string(ai.RoleAssistant),
 				Content: fmt.Sprintf("Error: %v", err),
 				Model:   im.config.Model.Name,
 			})
+			newMessages = append(newMessages, agent.AgentMessage{
+				Role:         ai.RoleAssistant,
+				Content:      fmt.Sprintf("Error: %v", err),
+				Model:        im.config.Model.Name,
+				ErrorMessage: err.Error(),
+				Timestamp:    time.Now().UnixMilli(),
+			})
 		} else if agentMsg != nil {
-			im.messages.AddMessage(*agentMsg)
+			im.program.Send(tui.AddMessageMsg{
+				Role:    string(agentMsg.Role),
+				Content: agentMsg.Content,
+				Model:   agentMsg.Model,
+			})
 		}
 
 		// Save session
+		priorMessages := priorConversation(turnMessages)
+		sessionMessages := append(priorMessages, newMessages...)
 		header := agent.SessionHeader{
 			ID:        im.sessionID,
 			Timestamp: time.Now().Format(time.RFC3339),
 			CWD:       im.config.CWD,
 		}
-		im.sessionManager.Save(im.sessionID, header, im.messages.messages)
+		if err := im.sessionManager.Save(im.sessionID, header, sessionMessages); err != nil {
+			im.program.Send(tui.AddMessageMsg{
+				Role:    string(ai.RoleAssistant),
+				Content: fmt.Sprintf("Session save error: %v", err),
+				Model:   im.config.Model.Name,
+			})
+		}
 
 		// Fire agent end
 		im.extRuntime.FireAgentEnd(im.extCtx, extensions.AgentEndEvent{
-			Messages: im.messages.messages,
+			Messages: sessionMessages,
 		})
 
-		im.status.SetContent(fmt.Sprintf("rho | %s/%s | %s",
-			im.config.Provider, im.config.Model.Name, shortenPath(im.config.CWD)))
-		im.tui.RequestRender(true)
+		im.program.Send(tui.AgentStatusMsg{
+			Text: im.statusText(""),
+		})
 	}()
 }
 
-func (im *InteractiveMode) runAgent(prompt string) (*agent.AgentMessage, error) {
+func (im *InteractiveMode) handlePendingLogin(value string) {
+	provider := im.pendingLoginProvider
+	im.pendingLoginProvider = ""
+	im.ui.ClearInput()
+
+	if value == "/cancel" {
+		im.addSystemMessage(fmt.Sprintf("Login cancelled for %s.", provider))
+		return
+	}
+	if im.config.AuthStorage == nil {
+		im.addSystemMessage("No auth storage is configured.")
+		return
+	}
+	key := strings.TrimSpace(value)
+	if key == "" {
+		im.addSystemMessage(fmt.Sprintf("No API key saved for %s.", provider))
+		return
+	}
+	if err := im.config.AuthStorage.SetAPIKey(provider, key); err != nil {
+		im.addSystemMessage(fmt.Sprintf("Could not save API key for %s: %v", provider, err))
+		return
+	}
+	if string(im.config.Provider) == provider {
+		im.config.APIKey = key
+	}
+	im.addSystemMessage(fmt.Sprintf("Saved API key for %s in %s.", provider, shortenPath(defaultAuthKeysPath())))
+}
+
+func (im *InteractiveMode) handleSlashCommand(value string) bool {
+	parts := strings.Fields(value)
+	if len(parts) == 0 {
+		return true
+	}
+	cmdName := strings.ToLower(strings.TrimPrefix(parts[0], "/"))
+	args := parts[1:]
+
+	switch cmdName {
+	case "login":
+		im.handleLoginCommand(args)
+		return true
+	case "logout":
+		im.handleLogoutCommand(args)
+		return true
+	case "model", "models":
+		im.handleModelCommand(args)
+		return true
+	case "settings", "config":
+		im.handleSettingsCommand(args)
+		return true
+	case "theme", "themes":
+		im.handleThemeCommand(args)
+		return true
+	case "copy":
+		im.copyLastAssistantMessage()
+		return true
+	case "sessions", "session", "resume":
+		im.handleSessionsCommand(args, "Resume session")
+		return true
+	case "name":
+		im.handleNameCommand(args)
+		return true
+	case "tree":
+		im.handleSessionsCommand(args, "Session tree")
+		return true
+	case "fork":
+		im.forkSession()
+		return true
+	case "new":
+		im.startNewSession()
+		return true
+	case "commands":
+		im.showCommandList()
+		im.ui.ClearInput()
+		return true
+	}
+
+	if im.hasExtensionCommand(cmdName) {
+		im.ui.ClearInput()
+		go func() {
+			if err := im.extRuntime.HandleSlashCommand(im.extCtx, cmdName, args); err != nil {
+				im.program.Send(tui.AddMessageMsg{
+					Role:    string(ai.RoleAssistant),
+					Content: fmt.Sprintf("Extension command error: %v", err),
+					Model:   "rho",
+				})
+			}
+		}()
+		return true
+	}
+
+	if im.slashCommands != nil {
+		ctx := codecore.SlashCommandContext{
+			CWD:            im.config.CWD,
+			SessionManager: im.sessionManager,
+			Model:          &im.config.Model,
+			SystemPrompt:   im.config.SystemPrompt,
+			Notify: func(message string, msgType string) {
+				im.addSystemMessage(message)
+			},
+		}
+		if err := im.slashCommands.Execute(ctx, value); err == nil {
+			im.ui.ClearInput()
+			return true
+		}
+	}
+
+	im.addSystemMessage(fmt.Sprintf("Unknown command: /%s. Type /help to see available commands.", cmdName))
+	im.ui.ClearInput()
+	return true
+}
+
+func (im *InteractiveMode) hasExtensionCommand(name string) bool {
+	for _, cmd := range im.extRuntime.GetSlashCommands() {
+		if cmd.Name == name {
+			return true
+		}
+	}
+	return false
+}
+
+func (im *InteractiveMode) handleSettingsCommand(args []string) {
+	im.ui.ClearInput()
+	if len(args) > 0 {
+		im.addSystemMessage("Interactive settings editing is available from /settings. Select an item to change related state.")
+		return
+	}
+	im.showSettingsSelector()
+}
+
+func (im *InteractiveMode) handleThemeCommand(args []string) {
+	im.ui.ClearInput()
+	if len(args) == 0 {
+		im.showThemeSelector()
+		return
+	}
+	im.selectTheme(strings.Join(args, " "))
+}
+
+func (im *InteractiveMode) copyLastAssistantMessage() {
+	im.ui.ClearInput()
+	msg, ok := im.lastAssistantMessage()
+	if !ok {
+		im.addSystemMessage("No assistant message to copy.")
+		return
+	}
+	write := im.config.ClipboardWrite
+	if write == nil {
+		write = agentutils.DefaultClipboard().Write
+	}
+	if err := write(msg.Content); err != nil {
+		im.addSystemMessage(fmt.Sprintf("Could not copy assistant message: %v", err))
+		return
+	}
+	im.addSystemMessage("Copied last assistant message to clipboard.")
+}
+
+func (im *InteractiveMode) lastAssistantMessage() (agent.AgentMessage, bool) {
+	for i := len(im.ui.messages) - 1; i >= 0; i-- {
+		msg := im.ui.messages[i]
+		if msg.Hide || msg.Model == "rho" {
+			continue
+		}
+		if msg.Role == ai.RoleAssistant && strings.TrimSpace(msg.Content) != "" {
+			return msg, true
+		}
+	}
+	return agent.AgentMessage{}, false
+}
+
+func (im *InteractiveMode) handleSessionsCommand(args []string, title string) {
+	im.ui.ClearInput()
+	if len(args) > 0 {
+		switch strings.ToLower(args[0]) {
+		case "new":
+			im.startNewSession()
+			return
+		case "list", "switch", "resume":
+			im.showSessionSelector(title)
+			return
+		}
+	}
+	im.showSessionSelector(title)
+}
+
+func (im *InteractiveMode) handleNameCommand(args []string) {
+	im.ui.ClearInput()
+	if len(args) > 0 {
+		im.setSessionName(strings.Join(args, " "))
+		return
+	}
+	current := im.sessionName(im.sessionID)
+	im.ui.OpenPrompt("Session name", current, func(value string) {
+		im.setSessionName(value)
+	}, func() {
+		im.addSystemMessage("Session naming cancelled.")
+	})
+}
+
+func (im *InteractiveMode) setSessionName(name string) {
+	name = strings.TrimSpace(name)
+	names := im.sessionNames()
+	if name == "" {
+		delete(names, im.sessionID)
+		im.addSystemMessage("Session name cleared.")
+	} else {
+		names[im.sessionID] = name
+		im.addSystemMessage(fmt.Sprintf("Session name set to: %s", name))
+	}
+	im.setUserSetting("sessionNames", names)
+	im.ui.SetStatus(im.statusText(""))
+}
+
+func (im *InteractiveMode) sessionName(sessionID string) string {
+	return im.sessionNames()[sessionID]
+}
+
+func (im *InteractiveMode) sessionNames() map[string]string {
+	out := make(map[string]string)
+	if im.config.Settings == nil {
+		return out
+	}
+	raw := im.config.Settings.Get("sessionNames")
+	switch vals := raw.(type) {
+	case map[string]string:
+		for k, v := range vals {
+			out[k] = v
+		}
+	case map[string]interface{}:
+		for k, v := range vals {
+			if s, ok := v.(string); ok {
+				out[k] = s
+			}
+		}
+	}
+	return out
+}
+
+func (im *InteractiveMode) showSessionSelector(title string) {
+	if im.sessionManager == nil {
+		im.addSystemMessage("No session manager is configured.")
+		return
+	}
+	sessions, err := im.sessionManager.List()
+	if err != nil {
+		im.addSystemMessage(fmt.Sprintf("Could not list sessions: %v", err))
+		return
+	}
+	if len(sessions) == 0 {
+		im.addSystemMessage("No saved sessions.")
+		return
+	}
+	items := make([]autocompleteItem, 0, len(sessions))
+	for _, session := range sessions {
+		label := session.ID
+		if session.ID == im.sessionID {
+			label += " (current)"
+		}
+		desc := strings.TrimSpace(session.Preview)
+		if desc == "" {
+			desc = fmt.Sprintf("%d messages", session.MessageCount)
+		}
+		if session.CWD != "" {
+			desc = shortenPath(session.CWD) + " - " + desc
+		}
+		items = append(items, autocompleteItem{
+			Value:       session.ID,
+			Label:       label,
+			Description: desc,
+		})
+	}
+	im.ui.OpenSelector(title, items, func(item autocompleteItem) {
+		im.resumeSession(item.Value)
+	}, func() {
+		im.addSystemMessage("Session selection cancelled.")
+	})
+}
+
+func (im *InteractiveMode) resumeSession(sessionID string) {
+	header, messages, err := im.sessionManager.Load(sessionID)
+	if err != nil {
+		im.addSystemMessage(fmt.Sprintf("Could not resume session %s: %v", sessionID, err))
+		return
+	}
+	im.sessionID = sessionID
+	if header.CWD != "" {
+		im.config.CWD = header.CWD
+	}
+	im.ui.messages = nil
+	im.addWelcomeMessage()
+	for _, msg := range messages {
+		im.ui.AddMessage(msg)
+	}
+	im.ui.SetStatus(im.statusText(""))
+	im.addSystemMessage(fmt.Sprintf("Resumed session %s.", sessionID))
+}
+
+func (im *InteractiveMode) startNewSession() {
+	im.sessionID = agent.CurrentSessionID()
+	im.ui.messages = nil
+	im.ui.ClearInput()
+	im.addWelcomeMessage()
+	im.ui.SetStatus(im.statusText(""))
+	im.addSystemMessage(fmt.Sprintf("Started new session %s.", im.sessionID))
+}
+
+func (im *InteractiveMode) forkSession() {
+	if im.sessionManager == nil {
+		im.addSystemMessage("No session manager is configured.")
+		return
+	}
+	parentID := im.sessionID
+	newID := agent.CurrentSessionID()
+	messages := conversationMessages(im.ui.Snapshot())
+	header := agent.SessionHeader{
+		ID:            newID,
+		Timestamp:     time.Now().Format(time.RFC3339),
+		CWD:           im.config.CWD,
+		ParentSession: parentID,
+	}
+	if err := im.sessionManager.Save(newID, header, messages); err != nil {
+		im.addSystemMessage(fmt.Sprintf("Could not fork session: %v", err))
+		return
+	}
+	im.sessionID = newID
+	im.ui.SetStatus(im.statusText(""))
+	im.addSystemMessage(fmt.Sprintf("Forked session %s from %s.", newID, parentID))
+}
+
+func (im *InteractiveMode) showSettingsSelector() {
+	apiKeyStatus := "not configured"
+	if strings.TrimSpace(im.config.APIKey) != "" {
+		apiKeyStatus = "configured"
+	}
+	showImages := im.settingBool("showImages", true)
+	thinkingLevel := im.settingString("thinkingLevel", "off")
+	activeTheme := im.activeThemeName()
+	items := []autocompleteItem{
+		{Value: "model", Label: "Model", Description: fmt.Sprintf("%s/%s", im.config.Provider, im.config.Model.Name)},
+		{Value: "auth", Label: "Authentication", Description: fmt.Sprintf("%s API key %s", im.config.Provider, apiKeyStatus)},
+		{Value: "theme", Label: "Theme", Description: activeTheme},
+		{Value: "showImages", Label: "Show images", Description: boolLabel(showImages)},
+		{Value: "thinkingLevel", Label: "Thinking level", Description: thinkingLevel},
+		{Value: "cwd", Label: "Working directory", Description: im.config.CWD},
+		{Value: "commands", Label: "Slash commands", Description: "Show all registered commands"},
+	}
+	im.ui.OpenSelector("Settings", items, func(item autocompleteItem) {
+		switch item.Value {
+		case "model":
+			im.showModelSelector("")
+		case "auth":
+			im.showLoginAuthTypeSelector()
+		case "theme":
+			im.showThemeSelector()
+		case "commands":
+			im.showCommandList()
+		case "showImages":
+			next := !showImages
+			im.setUserSetting("showImages", next)
+			im.addSystemMessage(fmt.Sprintf("Show images: %s", boolLabel(next)))
+			im.showSettingsSelector()
+		case "thinkingLevel":
+			next := nextThinkingLevel(thinkingLevel)
+			im.setUserSetting("thinkingLevel", next)
+			im.addSystemMessage(fmt.Sprintf("Thinking level: %s", next))
+			im.showSettingsSelector()
+		default:
+			im.addSystemMessage(fmt.Sprintf("%s: %s", item.Label, item.Description))
+		}
+	}, func() {
+		im.addSystemMessage("Settings closed.")
+	})
+}
+
+func (im *InteractiveMode) showThemeSelector() {
+	if im.config.ThemeManager == nil {
+		im.addSystemMessage("No theme manager is configured.")
+		return
+	}
+	names := im.config.ThemeManager.ListThemes()
+	if len(names) == 0 {
+		im.addSystemMessage("No themes are available.")
+		return
+	}
+	active := im.activeThemeName()
+	items := make([]autocompleteItem, 0, len(names))
+	for _, name := range names {
+		item := autocompleteItem{
+			Value:       name,
+			Label:       name,
+			Description: "theme",
+		}
+		if t, ok := im.config.ThemeManager.GetTheme(name); ok {
+			if t.Description != "" {
+				item.Description = t.Description
+			}
+			if t.Dark {
+				if item.Description == "" || item.Description == "theme" {
+					item.Description = "dark"
+				} else {
+					item.Description += " | dark"
+				}
+			}
+		}
+		if name == active {
+			if item.Description == "" || item.Description == "theme" {
+				item.Description = "current"
+			} else {
+				item.Description += " | current"
+			}
+		}
+		items = append(items, item)
+	}
+	im.ui.OpenSelector("Select theme", items, func(item autocompleteItem) {
+		im.selectTheme(item.Value)
+	}, func() {
+		im.addSystemMessage("Theme selection cancelled.")
+	})
+}
+
+func (im *InteractiveMode) selectTheme(name string) {
+	name = strings.TrimSpace(name)
+	if name == "" {
+		im.showThemeSelector()
+		return
+	}
+	if im.config.ThemeManager == nil {
+		im.addSystemMessage("No theme manager is configured.")
+		return
+	}
+	if err := im.config.ThemeManager.SetActive(name); err != nil {
+		im.addSystemMessage(fmt.Sprintf("Could not select theme %s: %v", name, err))
+		return
+	}
+	if im.config.Settings != nil {
+		im.setUserSetting("theme", name)
+	}
+	im.applyActiveTheme()
+	im.ui.SetStatus(im.statusText(""))
+	im.addSystemMessage(fmt.Sprintf("Selected theme: %s", name))
+}
+
+func (im *InteractiveMode) applyActiveTheme() {
+	if im.ui == nil || im.config.ThemeManager == nil {
+		return
+	}
+	im.ui.ApplyTheme(im.config.ThemeManager.Active())
+}
+
+func (im *InteractiveMode) activeThemeName() string {
+	if im.config.ThemeManager == nil {
+		return "default"
+	}
+	return im.config.ThemeManager.ActiveName()
+}
+
+func (im *InteractiveMode) settingBool(key string, fallback bool) bool {
+	if im.config.Settings == nil {
+		return fallback
+	}
+	value := im.config.Settings.Get(key)
+	if value == nil {
+		return fallback
+	}
+	if b, ok := value.(bool); ok {
+		return b
+	}
+	return fallback
+}
+
+func (im *InteractiveMode) settingString(key, fallback string) string {
+	if im.config.Settings == nil {
+		return fallback
+	}
+	if s := im.config.Settings.GetString(key); s != "" {
+		return s
+	}
+	return fallback
+}
+
+func (im *InteractiveMode) setUserSetting(key string, value interface{}) {
+	if im.config.Settings == nil {
+		im.addSystemMessage("No settings manager is configured.")
+		return
+	}
+	if err := im.config.Settings.SetUser(key, value); err != nil {
+		im.addSystemMessage(fmt.Sprintf("Could not save setting %s: %v", key, err))
+	}
+}
+
+func boolLabel(value bool) string {
+	if value {
+		return "on"
+	}
+	return "off"
+}
+
+func nextThinkingLevel(current string) string {
+	levels := []string{"off", "low", "medium", "high"}
+	for i, level := range levels {
+		if current == level {
+			return levels[(i+1)%len(levels)]
+		}
+	}
+	return "off"
+}
+
+func (im *InteractiveMode) handleLoginCommand(args []string) {
+	im.ui.ClearInput()
+	if im.config.AuthStorage == nil {
+		im.addSystemMessage("No auth storage is configured.")
+		return
+	}
+
+	if len(args) == 0 {
+		im.showLoginAuthTypeSelector()
+		return
+	}
+
+	provider := strings.ToLower(args[0])
+	if !im.isKnownProvider(provider) {
+		im.addSystemMessage(fmt.Sprintf("Unknown provider: %s\nAvailable providers: %s", provider, strings.Join(im.availableProviderNames(), ", ")))
+		return
+	}
+
+	if len(args) > 1 {
+		key := strings.TrimSpace(strings.Join(args[1:], " "))
+		if err := im.config.AuthStorage.SetAPIKey(provider, key); err != nil {
+			im.addSystemMessage(fmt.Sprintf("Could not save API key for %s: %v", provider, err))
+			return
+		}
+		if string(im.config.Provider) == provider {
+			im.config.APIKey = key
+		}
+		im.addSystemMessage(fmt.Sprintf("Saved API key for %s in %s.", provider, shortenPath(defaultAuthKeysPath())))
+		return
+	}
+
+	im.pendingLoginProvider = provider
+	im.addSystemMessage(fmt.Sprintf("Paste API key for %s. It will be stored in %s. Enter /cancel to abort.", provider, shortenPath(defaultAuthKeysPath())))
+}
+
+func (im *InteractiveMode) showLoginAuthTypeSelector() {
+	items := []autocompleteItem{
+		{Value: "api-key", Label: "API key", Description: "Paste and store a provider API key"},
+		{Value: "oauth", Label: "OAuth", Description: "Choose an OAuth-capable provider"},
+	}
+	im.ui.OpenSelector("Login method", items, func(item autocompleteItem) {
+		switch item.Value {
+		case "api-key":
+			im.showProviderSelector("Login provider", "login")
+		case "oauth":
+			im.showOAuthProviderSelector()
+		}
+	}, func() {
+		im.addSystemMessage("Login cancelled.")
+	})
+}
+
+func (im *InteractiveMode) showOAuthProviderSelector() {
+	options := ai.GetOAuthProviders()
+	if len(options) == 0 {
+		im.addSystemMessage("No OAuth providers are registered.")
+		return
+	}
+	items := make([]autocompleteItem, 0, len(options))
+	for _, option := range options {
+		items = append(items, autocompleteItem{
+			Value:       string(option.ProviderID),
+			Label:       option.Name,
+			Description: option.Description,
+		})
+	}
+	im.ui.OpenSelector("OAuth provider", items, func(item autocompleteItem) {
+		provider := ai.OAuthProviderFactory(ai.OAuthProviderID(item.Value))
+		if provider == nil || provider.AuthInfo() == nil {
+			im.addSystemMessage(fmt.Sprintf("OAuth provider %s is not available.", item.Value))
+			return
+		}
+		info := provider.AuthInfo()
+		im.addSystemMessage(fmt.Sprintf("OAuth login for %s is not fully automated in this TUI yet.\nAuthorization URL: %s\nUse /login %s <api-key> for API-key auth.", item.Value, info.AuthURL, item.Value))
+	}, func() {
+		im.addSystemMessage("OAuth login cancelled.")
+	})
+}
+
+func (im *InteractiveMode) handleLogoutCommand(args []string) {
+	im.ui.ClearInput()
+	if im.config.AuthStorage == nil {
+		im.addSystemMessage("No auth storage is configured.")
+		return
+	}
+	if len(args) == 0 {
+		im.showProviderSelector("Logout provider", "logout")
+		return
+	}
+	provider := strings.ToLower(args[0])
+	if err := im.config.AuthStorage.DeleteAPIKey(provider); err != nil {
+		im.addSystemMessage(fmt.Sprintf("Could not remove API key for %s: %v", provider, err))
+		return
+	}
+	if string(im.config.Provider) == provider {
+		im.config.APIKey = resolveAPIKey(im.config.Model, im.config.AuthStorage)
+	}
+	im.addSystemMessage(fmt.Sprintf("Removed saved API key for %s.", provider))
+}
+
+func (im *InteractiveMode) handleModelCommand(args []string) {
+	im.ui.ClearInput()
+	if len(args) == 0 {
+		im.showModelSelector("")
+		return
+	}
+	query := strings.ToLower(strings.Join(args, " "))
+	for _, model := range ai.DefaultModels() {
+		if strings.ToLower(model.Name) == query || strings.ToLower(string(model.Provider)+"/"+model.Name) == query {
+			im.selectModel(model)
+			return
+		}
+	}
+	im.showModelSelector(query)
+}
+
+func (im *InteractiveMode) showProviderSelector(title, mode string) {
+	items := make([]autocompleteItem, 0)
+	for _, provider := range im.availableProviderNames() {
+		items = append(items, autocompleteItem{
+			Value:       provider,
+			Label:       provider,
+			Description: "provider",
+		})
+	}
+	if len(items) == 0 {
+		im.addSystemMessage("No providers are available.")
+		return
+	}
+	im.ui.OpenSelector(title, items, func(item autocompleteItem) {
+		switch mode {
+		case "login":
+			im.handleLoginCommand([]string{item.Value})
+		case "logout":
+			im.handleLogoutCommand([]string{item.Value})
+		}
+	}, func() {
+		im.addSystemMessage(title + " cancelled.")
+	})
+}
+
+func (im *InteractiveMode) showModelSelector(query string) {
+	query = strings.ToLower(query)
+	items := make([]autocompleteItem, 0)
+	for _, model := range ai.DefaultModels() {
+		value := string(model.Provider) + "/" + model.Name
+		haystack := strings.ToLower(value)
+		if query != "" && !strings.Contains(haystack, query) {
+			continue
+		}
+		items = append(items, autocompleteItem{
+			Value:       value,
+			Label:       model.Name,
+			Description: string(model.Provider),
+		})
+	}
+	if len(items) == 0 {
+		im.addSystemMessage("No models matched " + query + ".")
+		return
+	}
+	im.ui.OpenSelector("Select model", items, func(item autocompleteItem) {
+		for _, model := range ai.DefaultModels() {
+			if item.Value == string(model.Provider)+"/"+model.Name {
+				im.selectModel(model)
+				return
+			}
+		}
+	}, func() {
+		im.addSystemMessage("Model selection cancelled.")
+	})
+}
+
+func (im *InteractiveMode) selectModel(model ai.ModelDefinition) {
+	im.config.Model = ai.Model{
+		API:      model.API,
+		Provider: model.Provider,
+		Name:     model.Name,
+		BaseURL:  model.BaseURL,
+	}
+	im.config.Provider = model.Provider
+	im.config.APIKey = resolveAPIKey(im.config.Model, im.config.AuthStorage)
+	im.ui.SetStatus(im.statusText(""))
+	im.addSystemMessage(fmt.Sprintf("Selected model: %s/%s", model.Provider, model.Name))
+}
+
+func (im *InteractiveMode) showCommandList() {
+	if im.slashCommands == nil {
+		im.addSystemMessage("No slash commands registered.")
+		return
+	}
+
+	ctx := codecore.SlashCommandContext{
+		CWD:            im.config.CWD,
+		SessionManager: im.sessionManager,
+		Model:          &im.config.Model,
+		SystemPrompt:   im.config.SystemPrompt,
+		Notify: func(message string, msgType string) {
+			im.addSystemMessage(message)
+		},
+	}
+	_ = im.slashCommands.Execute(ctx, "/help")
+}
+
+func (im *InteractiveMode) availableProviderNames() []string {
+	seen := make(map[string]bool)
+	var names []string
+	for _, model := range ai.DefaultModels() {
+		name := string(model.Provider)
+		if name == "" || seen[name] {
+			continue
+		}
+		seen[name] = true
+		names = append(names, name)
+	}
+	return names
+}
+
+func (im *InteractiveMode) isKnownProvider(provider string) bool {
+	for _, name := range im.availableProviderNames() {
+		if name == provider {
+			return true
+		}
+	}
+	return false
+}
+
+func (im *InteractiveMode) autocomplete(text string, cursor int) []autocompleteItem {
+	if cursor < 0 {
+		cursor = 0
+	}
+	runes := []rune(text)
+	if cursor > len(runes) {
+		cursor = len(runes)
+	}
+	prefixText := string(runes[:cursor])
+	if !strings.HasPrefix(prefixText, "/") || strings.Contains(prefixText, "\n") {
+		return nil
+	}
+
+	fields := strings.Fields(prefixText)
+	if len(fields) == 0 {
+		return im.commandAutocomplete("")
+	}
+
+	if len(fields) == 1 && !strings.HasSuffix(prefixText, " ") {
+		return im.commandAutocomplete(strings.TrimPrefix(fields[0], "/"))
+	}
+
+	cmd := strings.TrimPrefix(fields[0], "/")
+	argPrefix := ""
+	if len(fields) > 1 {
+		argPrefix = fields[len(fields)-1]
+	}
+	if strings.HasSuffix(prefixText, " ") {
+		argPrefix = ""
+	}
+
+	switch cmd {
+	case "model", "models":
+		return im.modelAutocomplete(cmd, argPrefix)
+	case "login", "logout":
+		return im.providerAutocomplete(cmd, argPrefix)
+	default:
+		return nil
+	}
+}
+
+func (im *InteractiveMode) commandAutocomplete(prefix string) []autocompleteItem {
+	prefix = strings.ToLower(prefix)
+	var items []autocompleteItem
+	seen := make(map[string]bool)
+	if im.slashCommands != nil {
+		for _, cmd := range im.slashCommands.List() {
+			if cmd.Hidden {
+				continue
+			}
+			if prefix != "" && !strings.Contains(strings.ToLower(cmd.Name), prefix) {
+				continue
+			}
+			seen[cmd.Name] = true
+			items = append(items, autocompleteItem{
+				Value:       "/" + cmd.Name,
+				Label:       "/" + cmd.Name,
+				Description: cmd.Description,
+			})
+		}
+	}
+	for _, cmd := range im.extRuntime.GetSlashCommands() {
+		if seen[cmd.Name] {
+			continue
+		}
+		if prefix != "" && !strings.Contains(strings.ToLower(cmd.Name), prefix) {
+			continue
+		}
+		seen[cmd.Name] = true
+		items = append(items, autocompleteItem{
+			Value:       "/" + cmd.Name,
+			Label:       "/" + cmd.Name,
+			Description: cmd.Description,
+		})
+	}
+	return items
+}
+
+func (im *InteractiveMode) modelAutocomplete(cmd, prefix string) []autocompleteItem {
+	prefix = strings.ToLower(prefix)
+	var items []autocompleteItem
+	for _, model := range ai.DefaultModels() {
+		value := "/" + cmd + " " + model.Name
+		haystack := strings.ToLower(string(model.Provider) + " " + model.Name)
+		if prefix != "" && !strings.Contains(haystack, prefix) {
+			continue
+		}
+		items = append(items, autocompleteItem{
+			Value:       value,
+			Label:       model.Name,
+			Description: string(model.Provider),
+		})
+	}
+	return items
+}
+
+func (im *InteractiveMode) providerAutocomplete(cmd, prefix string) []autocompleteItem {
+	prefix = strings.ToLower(prefix)
+	var items []autocompleteItem
+	for _, provider := range im.availableProviderNames() {
+		if prefix != "" && !strings.Contains(strings.ToLower(provider), prefix) {
+			continue
+		}
+		items = append(items, autocompleteItem{
+			Value:       "/" + cmd + " " + provider,
+			Label:       provider,
+			Description: "provider",
+		})
+	}
+	return items
+}
+
+func (im *InteractiveMode) addSystemMessage(content string) {
+	im.ui.AddMessage(agent.AgentMessage{
+		Role:      ai.RoleAssistant,
+		Content:   content,
+		Model:     "rho",
+		Timestamp: time.Now().UnixMilli(),
+	})
+}
+
+func (im *InteractiveMode) statusText(activity string) string {
+	parts := []string{
+		"rho",
+		fmt.Sprintf("%s/%s", im.config.Provider, im.config.Model.Name),
+	}
+	if name := im.sessionName(im.sessionID); name != "" {
+		parts = append(parts, name)
+	}
+	if activity != "" {
+		parts = append(parts, activity)
+	} else {
+		parts = append(parts, shortenPath(im.config.CWD))
+	}
+	for _, text := range im.extensionStatuses {
+		if strings.TrimSpace(text) != "" {
+			parts = append(parts, text)
+		}
+	}
+	return strings.Join(parts, " | ")
+}
+
+func (im *InteractiveMode) runAgent(prompt string, turnMessages []agent.AgentMessage) (*agent.AgentMessage, []agent.AgentMessage, error) {
 	loop := agent.NewAgentLoop(agent.AgentLoopConfig{
 		Model:             im.config.Model,
 		SystemPrompt:      im.config.SystemPrompt,
@@ -330,6 +2044,7 @@ func (im *InteractiveMode) runAgent(prompt string) (*agent.AgentMessage, error) 
 	context := agent.AgentContext{
 		SystemPrompt: im.config.SystemPrompt,
 		Model:        im.config.Model,
+		Messages:     priorConversation(turnMessages),
 		Tools:        allTools,
 	}
 
@@ -341,12 +2056,12 @@ func (im *InteractiveMode) runAgent(prompt string) (*agent.AgentMessage, error) 
 		switch event.Type {
 		case "tool_execution_start":
 			if event.ToolCall != nil {
-				im.messages.AddMessage(agent.AgentMessage{
-					Role:    ai.RoleAssistant,
-					Content: fmt.Sprintf("Running tool: %s...", event.ToolCall.Name),
-					Model:   im.config.Model.Name,
+				im.program.Send(tui.AddMessageMsg{
+					Role:     string(ai.RoleAssistant),
+					Content:  fmt.Sprintf("Running tool: %s...", event.ToolCall.Name),
+					Model:    im.config.Model.Name,
+					ToolCall: event.ToolCall.Name,
 				})
-				im.tui.RequestRender(true)
 			}
 		case "tool_execution_end":
 			if event.ToolCall != nil && event.Content != "" {
@@ -354,12 +2069,12 @@ func (im *InteractiveMode) runAgent(prompt string) (*agent.AgentMessage, error) 
 				if len(truncated) > 200 {
 					truncated = truncated[:200] + "..."
 				}
-				im.messages.AddMessage(agent.AgentMessage{
-					Role:     ai.RoleToolResult,
-					ToolName: event.ToolCall.Name,
+				im.program.Send(tui.AddMessageMsg{
+					Role:     string(ai.RoleToolResult),
 					Content:  truncated,
+					Model:    im.config.Model.Name,
+					ToolCall: event.ToolCall.Name,
 				})
-				im.tui.RequestRender(true)
 			}
 		}
 		return nil
@@ -367,33 +2082,55 @@ func (im *InteractiveMode) runAgent(prompt string) (*agent.AgentMessage, error) 
 
 	results, err := loop.Run(prompts, context, emit)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 
 	for i := len(results) - 1; i >= 0; i-- {
 		if results[i].Role == ai.RoleAssistant {
-			return &results[i], nil
+			return &results[i], results, nil
 		}
 	}
 
-	return &agent.AgentMessage{
+	msg := &agent.AgentMessage{
 		Role:    ai.RoleAssistant,
 		Content: "No response generated.",
 		Model:   im.config.Model.Name,
-	}, nil
+	}
+	return msg, append(results, *msg), nil
 }
 
-func (im *InteractiveMode) setupSignalHandling() {
-	sigChan := make(chan os.Signal, 1)
-	signal.Notify(sigChan, syscall.SIGINT, syscall.SIGTERM)
-	go func() {
-		<-sigChan
-		im.extRuntime.FireSessionShutdown(im.extCtx, extensions.SessionShutdownEvent{
-			Reason: extensions.SessionQuit,
-		})
-		im.tui.Stop()
-		os.Exit(0)
-	}()
+func priorConversation(messages []agent.AgentMessage) []agent.AgentMessage {
+	if len(messages) == 0 {
+		return nil
+	}
+
+	end := len(messages)
+	if messages[end-1].Role == ai.RoleUser {
+		end--
+	}
+
+	prior := make([]agent.AgentMessage, 0, end)
+	for _, msg := range messages[:end] {
+		if msg.Hide || msg.Model == "rho" {
+			continue
+		}
+		prior = append(prior, msg)
+	}
+	return prior
+}
+
+func conversationMessages(messages []agent.AgentMessage) []agent.AgentMessage {
+	if len(messages) == 0 {
+		return nil
+	}
+	out := make([]agent.AgentMessage, 0, len(messages))
+	for _, msg := range messages {
+		if msg.Hide || msg.Model == "rho" {
+			continue
+		}
+		out = append(out, msg)
+	}
+	return out
 }
 
 func shortenPath(p string) string {
@@ -405,4 +2142,70 @@ func shortenPath(p string) string {
 		return "~" + p[len(home):]
 	}
 	return p
+}
+
+// ─── Handle custom messages ────────────────────────────────────────────────
+
+// This function is called from the Bubble Tea update loop to process
+// asynchronous agent messages.
+func (im *InteractiveMode) handleCustomMessage(msg tea.Msg) {
+	switch m := msg.(type) {
+	case tui.AddMessageMsg:
+		amsg := agent.AgentMessage{
+			Role:    ai.Role(m.Role),
+			Content: m.Content,
+			Model:   m.Model,
+		}
+		if m.ToolCall != "" {
+			amsg.ToolName = m.ToolCall
+		}
+		im.ui.AddMessage(amsg)
+
+	case tui.AgentStatusMsg:
+		im.ui.SetStatus(m.Text)
+
+	case uiSelectRequestMsg:
+		items := make([]autocompleteItem, 0, len(m.Options))
+		for _, option := range m.Options {
+			items = append(items, autocompleteItem{Value: option, Label: option})
+		}
+		if len(items) == 0 {
+			m.Resp <- uiStringResponse{Err: errors.New("no options available")}
+			return
+		}
+		im.ui.OpenSelector(m.Title, items, func(item autocompleteItem) {
+			m.Resp <- uiStringResponse{Value: item.Value}
+		}, func() {
+			m.Resp <- uiStringResponse{Err: errors.New("selection cancelled")}
+		})
+
+	case uiConfirmRequestMsg:
+		items := []autocompleteItem{
+			{Value: "yes", Label: "Yes", Description: m.Message},
+			{Value: "no", Label: "No", Description: m.Message},
+		}
+		im.ui.OpenSelector(m.Title, items, func(item autocompleteItem) {
+			m.Resp <- uiBoolResponse{Value: item.Value == "yes"}
+		}, func() {
+			m.Resp <- uiBoolResponse{Err: errors.New("confirmation cancelled")}
+		})
+
+	case uiInputRequestMsg:
+		im.ui.OpenPrompt(m.Title, m.Placeholder, func(value string) {
+			m.Resp <- uiStringResponse{Value: value}
+		}, func() {
+			m.Resp <- uiStringResponse{Err: errors.New("input cancelled")}
+		})
+
+	case AgentExtensionStatusMsg:
+		if im.extensionStatuses == nil {
+			im.extensionStatuses = make(map[string]string)
+		}
+		if strings.TrimSpace(m.Text) == "" {
+			delete(im.extensionStatuses, m.Key)
+		} else {
+			im.extensionStatuses[m.Key] = m.Text
+		}
+		im.ui.SetStatus(im.statusText(""))
+	}
 }

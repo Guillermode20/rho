@@ -23,22 +23,25 @@ type SessionHeader struct {
 
 // SessionEntry is a single entry in a session file.
 type SessionEntry struct {
-	Type       string       `json:"type"`
-	ID         string       `json:"id"`
-	ParentID   string       `json:"parentId"`
-	Timestamp  string       `json:"timestamp"`
-	Message    *AgentMessage `json:"message,omitempty"`
-	Summary    string       `json:"summary,omitempty"`
-	FromID     string       `json:"fromId,omitempty"`
+	Type          string        `json:"type"`
+	Version       int           `json:"version,omitempty"`
+	ID            string        `json:"id"`
+	ParentID      string        `json:"parentId"`
+	Timestamp     string        `json:"timestamp"`
+	CWD           string        `json:"cwd,omitempty"`
+	ParentSession string        `json:"parentSession,omitempty"`
+	Message       *AgentMessage `json:"message,omitempty"`
+	Summary       string        `json:"summary,omitempty"`
+	FromID        string        `json:"fromId,omitempty"`
 }
 
 // SessionInfo summarizes a saved session.
 type SessionInfo struct {
-	ID        string `json:"id"`
-	Timestamp string `json:"timestamp"`
-	CWD       string `json:"cwd"`
-	MessageCount int `json:"messageCount"`
-	Preview   string `json:"preview"`
+	ID           string `json:"id"`
+	Timestamp    string `json:"timestamp"`
+	CWD          string `json:"cwd"`
+	MessageCount int    `json:"messageCount"`
+	Preview      string `json:"preview"`
 }
 
 // SessionManager manages session persistence.
@@ -69,9 +72,12 @@ func (sm *SessionManager) Save(sessionID string, header SessionHeader, messages 
 	header.Type = "session"
 	header.Version = 3
 	entries = append(entries, SessionEntry{
-		Type:      "session",
-		ID:        sessionID,
-		Timestamp: header.Timestamp,
+		Type:          "session",
+		Version:       header.Version,
+		ID:            sessionID,
+		Timestamp:     header.Timestamp,
+		CWD:           header.CWD,
+		ParentSession: header.ParentSession,
 	})
 
 	// Messages
@@ -127,8 +133,12 @@ func (sm *SessionManager) Load(sessionID string) (SessionHeader, []AgentMessage,
 		switch entry.Type {
 		case "session":
 			header = SessionHeader{
-				ID:        entry.ID,
-				Timestamp: entry.Timestamp,
+				Type:          entry.Type,
+				Version:       entry.Version,
+				ID:            entry.ID,
+				Timestamp:     entry.Timestamp,
+				CWD:           entry.CWD,
+				ParentSession: entry.ParentSession,
 			}
 		case "message":
 			if entry.Message != nil {
@@ -181,6 +191,7 @@ func (sm *SessionManager) List() ([]SessionInfo, error) {
 			switch e.Type {
 			case "session":
 				info.Timestamp = e.Timestamp
+				info.CWD = e.CWD
 			case "message":
 				info.MessageCount++
 				if info.Preview == "" && e.Message != nil && e.Message.Content != "" {

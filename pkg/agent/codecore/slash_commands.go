@@ -27,13 +27,13 @@ type SlashCommandContext struct {
 
 // SlashCommand defines a slash command.
 type SlashCommand struct {
-	Name        string             `json:"name"`
-	Aliases     []string           `json:"aliases,omitempty"`
-	Description string             `json:"description"`
-	Usage       string             `json:"usage,omitempty"`
-	Category    string             `json:"category,omitempty"`
+	Name        string              `json:"name"`
+	Aliases     []string            `json:"aliases,omitempty"`
+	Description string              `json:"description"`
+	Usage       string              `json:"usage,omitempty"`
+	Category    string              `json:"category,omitempty"`
 	Handler     SlashCommandHandler `json:"-"`
-	Hidden      bool               `json:"hidden,omitempty"`
+	Hidden      bool                `json:"hidden,omitempty"`
 }
 
 // SlashCommandManager manages slash commands.
@@ -55,6 +55,7 @@ func NewSlashCommandManager() *SlashCommandManager {
 func (m *SlashCommandManager) registerBuiltins() {
 	m.Register(&SlashCommand{
 		Name:        "help",
+		Aliases:     []string{"commands"},
 		Description: "Show help information about available commands",
 		Usage:       "/help [command]",
 		Category:    "general",
@@ -93,6 +94,28 @@ func (m *SlashCommandManager) registerBuiltins() {
 				}
 			}
 			ctx.Notify(strings.Join(lines, "\n"), "info")
+			return nil
+		},
+	})
+
+	m.Register(&SlashCommand{
+		Name:        "login",
+		Description: "Configure provider authentication",
+		Usage:       "/login <provider> [api-key]",
+		Category:    "auth",
+		Handler: func(ctx SlashCommandContext, args []string) error {
+			ctx.Notify("Usage: /login <provider> [api-key]", "info")
+			return nil
+		},
+	})
+
+	m.Register(&SlashCommand{
+		Name:        "logout",
+		Description: "Remove saved provider authentication",
+		Usage:       "/logout <provider>",
+		Category:    "auth",
+		Handler: func(ctx SlashCommandContext, args []string) error {
+			ctx.Notify("Usage: /logout <provider>", "info")
 			return nil
 		},
 	})
@@ -161,6 +184,14 @@ func (m *SlashCommandManager) registerBuiltins() {
 		Usage:       "/model [name]",
 		Category:    "model",
 		Handler: func(ctx SlashCommandContext, args []string) error {
+			if ctx.ModelRegistry == nil {
+				if ctx.Model != nil {
+					ctx.Notify(fmt.Sprintf("Current model: %s/%s", ctx.Model.Provider, ctx.Model.Name), "info")
+				} else {
+					ctx.Notify("No model registry available", "info")
+				}
+				return nil
+			}
 			if len(args) == 0 {
 				if ctx.Model != nil {
 					ctx.Notify(fmt.Sprintf("Current model: %s/%s", ctx.Model.Provider, ctx.Model.Name), "info")
@@ -226,6 +257,29 @@ func (m *SlashCommandManager) registerBuiltins() {
 	})
 
 	m.Register(&SlashCommand{
+		Name:        "theme",
+		Aliases:     []string{"themes"},
+		Description: "View or change the current UI theme",
+		Usage:       "/theme [name]",
+		Category:    "config",
+		Handler: func(ctx SlashCommandContext, args []string) error {
+			ctx.Notify("Theme selection is available from /theme in interactive mode.", "info")
+			return nil
+		},
+	})
+
+	m.Register(&SlashCommand{
+		Name:        "scoped-models",
+		Description: "Enable or disable models for model cycling",
+		Usage:       "/scoped-models",
+		Category:    "model",
+		Handler: func(ctx SlashCommandContext, args []string) error {
+			ctx.Notify("Scoped model selection is not implemented in this TUI yet.", "info")
+			return nil
+		},
+	})
+
+	m.Register(&SlashCommand{
 		Name:        "export",
 		Description: "Export the current session as HTML",
 		Usage:       "/export [filename]",
@@ -241,6 +295,85 @@ func (m *SlashCommandManager) registerBuiltins() {
 	})
 
 	m.Register(&SlashCommand{
+		Name:        "import",
+		Description: "Import and resume a session from a JSONL file",
+		Usage:       "/import <path>",
+		Category:    "session",
+		Handler: func(ctx SlashCommandContext, args []string) error {
+			ctx.Notify("Session import is not implemented in this TUI yet.", "info")
+			return nil
+		},
+	})
+
+	m.Register(&SlashCommand{
+		Name:        "share",
+		Description: "Share the current session as a secret GitHub gist",
+		Usage:       "/share",
+		Category:    "session",
+		Handler: func(ctx SlashCommandContext, args []string) error {
+			ctx.Notify("Session sharing is not implemented in this TUI yet.", "info")
+			return nil
+		},
+	})
+
+	m.Register(&SlashCommand{
+		Name:        "copy",
+		Description: "Copy the last assistant message to the clipboard",
+		Usage:       "/copy",
+		Category:    "general",
+		Handler: func(ctx SlashCommandContext, args []string) error {
+			ctx.Notify("Copying the last assistant message is not implemented in this TUI yet.", "info")
+			return nil
+		},
+	})
+
+	m.Register(&SlashCommand{
+		Name:        "name",
+		Description: "Set the current session display name",
+		Usage:       "/name <display-name>",
+		Category:    "session",
+		Handler: func(ctx SlashCommandContext, args []string) error {
+			ctx.Notify("Session naming is not implemented in this TUI yet.", "info")
+			return nil
+		},
+	})
+
+	m.Register(&SlashCommand{
+		Name:        "session",
+		Aliases:     []string{"info"},
+		Description: "Show current session information",
+		Usage:       "/session",
+		Category:    "session",
+		Handler: func(ctx SlashCommandContext, args []string) error {
+			ctx.Notify(fmt.Sprintf("Current directory: %s", ctx.CWD), "info")
+			return nil
+		},
+	})
+
+	m.Register(&SlashCommand{
+		Name:        "changelog",
+		Description: "Show changelog entries",
+		Usage:       "/changelog",
+		Category:    "general",
+		Handler: func(ctx SlashCommandContext, args []string) error {
+			ctx.Notify("Changelog display is not implemented in this TUI yet.", "info")
+			return nil
+		},
+	})
+
+	m.Register(&SlashCommand{
+		Name:        "hotkeys",
+		Aliases:     []string{"keybindings"},
+		Description: "Show keyboard shortcuts",
+		Usage:       "/hotkeys",
+		Category:    "general",
+		Handler: func(ctx SlashCommandContext, args []string) error {
+			ctx.Notify("Enter send\nAlt+Enter newline\nPgUp/PgDn scroll\nCtrl+A/Ctrl+E move cursor\nCtrl+U clear input\nCtrl+C quit", "info")
+			return nil
+		},
+	})
+
+	m.Register(&SlashCommand{
 		Name:        "extensions",
 		Aliases:     []string{"ext"},
 		Description: "List and manage extensions",
@@ -248,6 +381,61 @@ func (m *SlashCommandManager) registerBuiltins() {
 		Category:    "extensions",
 		Handler: func(ctx SlashCommandContext, args []string) error {
 			ctx.Notify("Extensions management", "info")
+			return nil
+		},
+	})
+
+	m.Register(&SlashCommand{
+		Name:        "clone",
+		Description: "Duplicate the current session at the current position",
+		Usage:       "/clone",
+		Category:    "session",
+		Handler: func(ctx SlashCommandContext, args []string) error {
+			ctx.Notify("Session cloning is not implemented in this TUI yet.", "info")
+			return nil
+		},
+	})
+
+	m.Register(&SlashCommand{
+		Name:        "tree",
+		Description: "Navigate the session tree",
+		Usage:       "/tree",
+		Category:    "session",
+		Handler: func(ctx SlashCommandContext, args []string) error {
+			ctx.Notify("Session tree navigation is not implemented in this TUI yet.", "info")
+			return nil
+		},
+	})
+
+	m.Register(&SlashCommand{
+		Name:        "new",
+		Description: "Start a new session",
+		Usage:       "/new",
+		Category:    "session",
+		Handler: func(ctx SlashCommandContext, args []string) error {
+			ctx.Notify("Starting a new interactive session is not implemented in this TUI yet.", "info")
+			return nil
+		},
+	})
+
+	m.Register(&SlashCommand{
+		Name:        "resume",
+		Description: "Resume a different saved session",
+		Usage:       "/resume",
+		Category:    "session",
+		Handler: func(ctx SlashCommandContext, args []string) error {
+			ctx.Notify("Session resume selection is not implemented in this TUI yet.", "info")
+			return nil
+		},
+	})
+
+	m.Register(&SlashCommand{
+		Name:        "reload",
+		Description: "Reload keybindings, extensions, skills, prompts, and themes",
+		Usage:       "/reload",
+		Category:    "general",
+		Handler: func(ctx SlashCommandContext, args []string) error {
+			ctx.Notify("Reload is not implemented in this TUI yet.", "info")
 			return nil
 		},
 	})
@@ -374,5 +562,3 @@ func (m *SlashCommandManager) AutocompleteSuggestions(prefix string) []string {
 	sort.Strings(suggestions)
 	return suggestions
 }
-
-

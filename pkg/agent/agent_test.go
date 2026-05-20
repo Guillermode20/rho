@@ -35,10 +35,10 @@ func TestAgentMessage(t *testing.T) {
 
 func TestAgentMessageAssistant(t *testing.T) {
 	msg := AgentMessage{
-		Role:    ai.RoleAssistant,
-		Content: "Hello there!",
-		Model:   "claude-sonnet-4",
-		Provider: ai.ProviderAnthropic,
+		Role:       ai.RoleAssistant,
+		Content:    "Hello there!",
+		Model:      "claude-sonnet-4",
+		Provider:   ai.ProviderAnthropic,
 		StopReason: ai.StopReasonStop,
 	}
 	if msg.StopReason != ai.StopReasonStop {
@@ -174,5 +174,85 @@ func TestAgentLoopConfig(t *testing.T) {
 	}
 	if config.Temperature != 0.7 {
 		t.Errorf("expected 0.7 temperature, got %f", config.Temperature)
+	}
+}
+
+func TestAgentLoopRunReturnsOnlyCurrentTurnMessages(t *testing.T) {
+	loop := NewAgentLoop(AgentLoopConfig{
+		Model: ai.Model{
+			API:      ai.APIAnthropicMessages,
+			Provider: ai.ProviderAnthropic,
+			Name:     "test-model",
+		},
+	})
+	loop.SetStreamFn(func(model ai.Model, ctx ai.Context, options *ai.SimpleStreamOptions, callback ai.StreamEventCallback) error {
+		if len(ctx.Messages) != 2 {
+			t.Fatalf("expected prior message plus current prompt, got %d", len(ctx.Messages))
+		}
+		if err := callback(ai.StreamEvent{Type: "text_delta", Delta: "new response"}); err != nil {
+			return err
+		}
+		return callback(ai.StreamEvent{
+			Type: "done",
+			Message: &ai.AssistantMessage{
+				StopReason: ai.StopReasonStop,
+			},
+		})
+	})
+
+	results, err := loop.Run(
+		[]AgentMessage{{Role: ai.RoleUser, Content: "current"}},
+		AgentContext{
+			Messages: []AgentMessage{{Role: ai.RoleAssistant, Content: "prior"}},
+		},
+		func(AgentEvent) error { return nil },
+	)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(results) != 2 {
+		t.Fatalf("expected current user message and assistant response, got %d", len(results))
+	}
+	if results[0].Content != "current" {
+		t.Fatalf("expected first result to be current prompt, got %q", results[0].Content)
+	}
+	if results[1].Content != "new response" {
+		t.Fatalf("expected assistant response, got %q", results[1].Content)
+	}
+}
+
+func TestSessionManagerRoundTripsHeaderMetadata(t *testing.T) {
+	sm := NewSessionManager(t.TempDir())
+	header := SessionHeader{
+		ID:            "session-1",
+		Timestamp:     "2026-05-19T12:00:00Z",
+		CWD:           "/tmp/project",
+		ParentSession: "parent-1",
+	}
+
+	if err := sm.Save(header.ID, header, []AgentMessage{{Role: ai.RoleUser, Content: "hello"}}); err != nil {
+		t.Fatalf("save failed: %v", err)
+	}
+
+	loadedHeader, messages, err := sm.Load(header.ID)
+	if err != nil {
+		t.Fatalf("load failed: %v", err)
+	}
+	if loadedHeader.CWD != header.CWD {
+		t.Fatalf("expected cwd %q, got %q", header.CWD, loadedHeader.CWD)
+	}
+	if loadedHeader.ParentSession != header.ParentSession {
+		t.Fatalf("expected parent %q, got %q", header.ParentSession, loadedHeader.ParentSession)
+	}
+	if len(messages) != 1 || messages[0].Content != "hello" {
+		t.Fatalf("unexpected messages: %#v", messages)
+	}
+
+	sessions, err := sm.List()
+	if err != nil {
+		t.Fatalf("list failed: %v", err)
+	}
+	if len(sessions) != 1 || sessions[0].CWD != header.CWD {
+		t.Fatalf("expected listed cwd %q, got %#v", header.CWD, sessions)
 	}
 }

@@ -113,7 +113,9 @@ func (s *Server) registerMethods() {
 		var params struct {
 			ID string `json:"id"`
 		}
-		json.Unmarshal(req.Params, &params)
+		if err := json.Unmarshal(req.Params, &params); err != nil {
+			return s.writeError(req.ID, ErrParams, fmt.Sprintf("invalid params: %v", err))
+		}
 		if s.sessionMgr == nil {
 			return s.writeError(req.ID, ErrInternal, "no session manager")
 		}
@@ -125,10 +127,16 @@ func (s *Server) registerMethods() {
 	}
 
 	s.handlers["session.delete"] = func(req Request) error {
-		var params struct{ ID string `json:"id"` }
-		json.Unmarshal(req.Params, &params)
+		var params struct {
+			ID string `json:"id"`
+		}
+		if err := json.Unmarshal(req.Params, &params); err != nil {
+			return s.writeError(req.ID, ErrParams, fmt.Sprintf("invalid params: %v", err))
+		}
 		if s.sessionMgr != nil {
-			s.sessionMgr.Delete(params.ID)
+			if err := s.sessionMgr.Delete(params.ID); err != nil {
+				return s.writeError(req.ID, ErrInternal, err.Error())
+			}
 		}
 		return s.writeResult(req.ID, map[string]bool{"deleted": true})
 	}
@@ -201,25 +209,25 @@ func (s *Server) registerMethods() {
 		var params struct {
 			Prompt string `json:"prompt"`
 		}
-		json.Unmarshal(req.Params, &params)
+		if err := json.Unmarshal(req.Params, &params); err != nil {
+			return s.writeError(req.ID, ErrParams, fmt.Sprintf("invalid params: %v", err))
+		}
 		// Simple agent run
 		ctx := ai.Context{
 			Messages: []ai.Message{ai.NewUserMessage(params.Prompt)},
 		}
 		var responseText strings.Builder
-		providers.Stream(s.model, ctx, &ai.StreamOptions{APIKey: s.apiKey}, func(event ai.StreamEvent) error {
+		if err := providers.Stream(s.model, ctx, &ai.StreamOptions{APIKey: s.apiKey}, func(event ai.StreamEvent) error {
 			if event.Type == "text_delta" {
 				responseText.WriteString(event.Delta)
 			}
 			return nil
-		})
+		}); err != nil {
+			return s.writeError(req.ID, ErrInternal, fmt.Sprintf("stream error: %v", err))
+		}
 		return s.writeResult(req.ID, map[string]interface{}{
 			"response": responseText.String(),
 		})
-	}
-
-	s.handlers["tools.list"] = func(req Request) error {
-		return s.writeResult(req.ID, s.tools)
 	}
 }
 

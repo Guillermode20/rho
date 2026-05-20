@@ -5,9 +5,17 @@ import (
 	"encoding/json"
 	"flag"
 	"fmt"
+	"io"
 	"os"
+	"path/filepath"
 	"strings"
 
+	"github.com/earendil-works/rho/pkg/agent"
+	"github.com/earendil-works/rho/pkg/agent/auth"
+	"github.com/earendil-works/rho/pkg/agent/codecore"
+	"github.com/earendil-works/rho/pkg/agent/rpc"
+	agenttheme "github.com/earendil-works/rho/pkg/agent/theme"
+	"github.com/earendil-works/rho/pkg/agent/tools"
 	"github.com/earendil-works/rho/pkg/ai"
 	"github.com/earendil-works/rho/pkg/ai/providers"
 )
@@ -48,6 +56,18 @@ func main() {
 			os.Exit(1)
 		}
 	}
+	authStorage := auth.NewAuthStorage(defaultAuthKeysPath())
+	rhoDir := filepath.Join(os.Getenv("HOME"), ".rho")
+	settingsManager := codecore.NewSettingsManager(filepath.Join(rhoDir, "settings"), workDir)
+	themeManager := agenttheme.NewThemeManager(filepath.Join(rhoDir, "themes"))
+	if err := themeManager.LoadThemes(); err != nil {
+		fmt.Fprintf(os.Stderr, "Warning: could not load themes: %v\n", err)
+	}
+	if selectedTheme := settingsManager.GetString("theme"); selectedTheme != "" {
+		if err := themeManager.SetActive(selectedTheme); err != nil {
+			fmt.Fprintf(os.Stderr, "Warning: could not activate theme %q: %v\n", selectedTheme, err)
+		}
+	}
 
 	// Resolve model
 	var model ai.Model
@@ -59,7 +79,7 @@ func main() {
 
 	// Resolve API key
 	if *apiKey == "" {
-		*apiKey = resolveAPIKey(model)
+		*apiKey = resolveAPIKey(model, authStorage)
 	}
 
 	// Resolve provider name
@@ -82,6 +102,9 @@ func main() {
 		APIKey:       *apiKey,
 		Provider:     model.Provider,
 		CWD:          workDir,
+		AuthStorage:  authStorage,
+		Settings:     settingsManager,
+		ThemeManager: themeManager,
 	}
 
 	switch *mode {
@@ -92,7 +115,20 @@ func main() {
 			os.Exit(1)
 		}
 	case "print":
-		runPrintMode(*modelName, *providerName, *apiKey, *systemPrompt, *prompt)
+		if err := runPrintMode(cfg, *prompt); err != nil {
+			fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+			os.Exit(1)
+		}
+	case "json":
+		if err := runJSONMode(cfg, *prompt); err != nil {
+			fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+			os.Exit(1)
+		}
+	case "rpc":
+		if err := runRPCMode(cfg); err != nil {
+			fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+			os.Exit(1)
+		}
 	default:
 		fmt.Fprintf(os.Stderr, "Unknown mode: %s\n", *mode)
 		os.Exit(1)
@@ -122,6 +158,11 @@ Environment Variables:
   OPENAI_API_KEY         API key for OpenAI
   GOOGLE_API_KEY         API key for Google Generative AI
   DEEPSEEK_API_KEY       API key for DeepSeek
+
+Interactive Commands:
+  /help                  List available slash commands
+  /login [provider]      Save an API key for a provider
+  /logout [provider]     Remove a saved API key
 
 Examples:
   rho
@@ -204,23 +245,40 @@ func getDefaultModel() ai.Model {
 	}
 }
 
-func resolveAPIKey(model ai.Model) string {
+func defaultAuthKeysPath() string {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		home = os.Getenv("HOME")
+	}
+	return filepath.Join(home, ".rho", "auth", "keys.json")
+}
+
+func resolveAPIKey(model ai.Model, authStorage *auth.AuthStorage) string {
 	switch model.Provider {
 	case ai.ProviderAnthropic:
-		return providers.GetEnvAPIKey("ANTHROPIC_API_KEY", "CLAUDE_API_KEY")
+		return firstConfiguredAPIKey(authStorage, string(model.Provider), "ANTHROPIC_API_KEY", "CLAUDE_API_KEY")
 	case ai.ProviderOpenAI, ai.ProviderOpenAICodex:
-		return providers.GetEnvAPIKey("OPENAI_API_KEY")
+		return firstConfiguredAPIKey(authStorage, string(model.Provider), "OPENAI_API_KEY")
 	case ai.ProviderGoogle:
-		return providers.GetEnvAPIKey("GOOGLE_API_KEY", "GEMINI_API_KEY")
+		return firstConfiguredAPIKey(authStorage, string(model.Provider), "GOOGLE_API_KEY", "GEMINI_API_KEY")
 	case ai.ProviderDeepSeek:
-		return providers.GetEnvAPIKey("DEEPSEEK_API_KEY")
+		return firstConfiguredAPIKey(authStorage, string(model.Provider), "DEEPSEEK_API_KEY")
 	case ai.ProviderMistral:
-		return providers.GetEnvAPIKey("MISTRAL_API_KEY")
+		return firstConfiguredAPIKey(authStorage, string(model.Provider), "MISTRAL_API_KEY")
 	case ai.ProviderGroq:
-		return providers.GetEnvAPIKey("GROQ_API_KEY")
+		return firstConfiguredAPIKey(authStorage, string(model.Provider), "GROQ_API_KEY")
 	default:
 		return providers.GetEnvAPIKey("OPENAI_API_KEY", "ANTHROPIC_API_KEY")
 	}
+}
+
+func firstConfiguredAPIKey(authStorage *auth.AuthStorage, provider string, envNames ...string) string {
+	if authStorage != nil {
+		if key, ok := authStorage.GetAPIKey(provider); ok && strings.TrimSpace(key) != "" {
+			return key
+		}
+	}
+	return providers.GetEnvAPIKey(envNames...)
 }
 
 func printModelList() {
@@ -236,7 +294,7 @@ func printModelList() {
 	}
 }
 
-func runPrintMode(modelName, providerName, apiKey, sysPrompt, promptText string) {
+func readPrompt(promptText string) (string, error) {
 	if promptText == "" {
 		args := flag.Args()
 		if len(args) > 0 {
@@ -245,24 +303,137 @@ func runPrintMode(modelName, providerName, apiKey, sysPrompt, promptText string)
 			// Read from stdin if piped
 			stat, _ := os.Stdin.Stat()
 			if (stat.Mode() & os.ModeCharDevice) == 0 {
-				data := make([]byte, 1024*1024)
-				n, _ := os.Stdin.Read(data)
-				promptText = strings.TrimSpace(string(data[:n]))
+				data, err := io.ReadAll(os.Stdin)
+				if err != nil {
+					return "", err
+				}
+				promptText = strings.TrimSpace(string(data))
 			}
 		}
 		if promptText == "" {
-			fmt.Fprintln(os.Stderr, "No prompt provided. Use -prompt, pass text as arguments, or pipe input.")
-			os.Exit(1)
+			return "", fmt.Errorf("no prompt provided; use -prompt, pass text as arguments, or pipe input")
 		}
 	}
 
-	model := resolveModel(modelName, providerName)
+	return promptText, nil
+}
 
-	_ = model
-	fmt.Printf("User: %s\n", promptText)
-	fmt.Println("---")
-	fmt.Println("Configure an AI provider to get real responses.")
-	fmt.Println("Set ANTHROPIC_API_KEY, OPENAI_API_KEY, or GOOGLE_API_KEY environment variables.")
+func runPrintMode(cfg *RuntimeConfig, promptText string) error {
+	promptText, err := readPrompt(promptText)
+	if err != nil {
+		return err
+	}
+
+	results, streamed, err := runAgentOnce(cfg, []agent.AgentMessage{{
+		Role:    ai.RoleUser,
+		Content: promptText,
+	}}, true)
+	if err != nil {
+		return err
+	}
+	if streamed {
+		fmt.Println()
+		return nil
+	}
+	for i := len(results) - 1; i >= 0; i-- {
+		if results[i].Role == ai.RoleAssistant && results[i].Content != "" {
+			fmt.Println(results[i].Content)
+			return nil
+		}
+	}
+	return fmt.Errorf("no response generated")
+}
+
+func runJSONMode(cfg *RuntimeConfig, promptText string) error {
+	var input struct {
+		Messages []agent.AgentMessage `json:"messages"`
+		Prompt   string               `json:"prompt"`
+	}
+
+	stat, _ := os.Stdin.Stat()
+	if (stat.Mode() & os.ModeCharDevice) == 0 {
+		data, err := io.ReadAll(os.Stdin)
+		if err != nil {
+			return err
+		}
+		if len(strings.TrimSpace(string(data))) > 0 {
+			if err := json.Unmarshal(data, &input); err != nil {
+				return fmt.Errorf("invalid json input: %w", err)
+			}
+		}
+	}
+
+	if len(input.Messages) == 0 {
+		prompt := input.Prompt
+		if prompt == "" {
+			prompt = promptText
+		}
+		var err error
+		prompt, err = readPrompt(prompt)
+		if err != nil {
+			return err
+		}
+		input.Messages = []agent.AgentMessage{{Role: ai.RoleUser, Content: prompt}}
+	}
+
+	results, _, err := runAgentOnce(cfg, input.Messages, false)
+	if err != nil {
+		return err
+	}
+	return json.NewEncoder(os.Stdout).Encode(map[string]interface{}{
+		"messages": results,
+	})
+}
+
+func runRPCMode(cfg *RuntimeConfig) error {
+	rhoDir := filepath.Join(os.Getenv("HOME"), ".rho")
+	server := rpc.NewServer()
+	server.SetModel(cfg.Model)
+	server.SetAPIKey(cfg.APIKey)
+	server.SetTools(tools.AllTools(cfg.CWD))
+	server.SetSessionManager(agent.NewSessionManager(filepath.Join(rhoDir, "sessions")))
+	return server.Run()
+}
+
+func runAgentOnce(cfg *RuntimeConfig, messages []agent.AgentMessage, streamToStdout bool) ([]agent.AgentMessage, bool, error) {
+	if len(messages) == 0 {
+		return nil, false, fmt.Errorf("no messages provided")
+	}
+
+	prompt := messages[len(messages)-1]
+	if prompt.Role != ai.RoleUser {
+		return nil, false, fmt.Errorf("last message must be a user message")
+	}
+
+	context := agent.AgentContext{
+		SystemPrompt: cfg.SystemPrompt,
+		Model:        cfg.Model,
+		Messages:     append([]agent.AgentMessage(nil), messages[:len(messages)-1]...),
+		Tools:        tools.AllTools(cfg.CWD),
+	}
+	loop := agent.NewAgentLoop(agent.AgentLoopConfig{
+		Model:             cfg.Model,
+		SystemPrompt:      cfg.SystemPrompt,
+		APIKey:            cfg.APIKey,
+		ToolExecutionMode: agent.ToolExecutionSequential,
+	})
+
+	streamed := false
+	results, err := loop.Run([]agent.AgentMessage{prompt}, context, func(event agent.AgentEvent) error {
+		switch event.Type {
+		case "text_delta":
+			if streamToStdout {
+				streamed = true
+				fmt.Print(event.Delta)
+			}
+		case "tool_execution_start":
+			if event.ToolCall != nil {
+				fmt.Fprintf(os.Stderr, "Running tool: %s\n", event.ToolCall.Name)
+			}
+		}
+		return nil
+	})
+	return results, streamed, err
 }
 
 type config struct {

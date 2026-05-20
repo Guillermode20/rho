@@ -144,6 +144,30 @@ func TestInput_HandleInput(t *testing.T) {
 	}
 }
 
+func TestInput_HandleUnicodeAndPaste(t *testing.T) {
+	input := NewInput()
+	input.SetFocused(true)
+
+	input.HandleInput("λ")
+	input.HandleInput(" pasted")
+
+	if input.Value() != "λ pasted" {
+		t.Fatalf("expected unicode and pasted text, got %q", input.Value())
+	}
+}
+
+func TestInput_IgnoresNamedKeys(t *testing.T) {
+	input := NewInput()
+	input.SetFocused(true)
+
+	input.HandleInput("tab")
+	input.HandleInput("ctrl+x")
+
+	if input.Value() != "" {
+		t.Fatalf("expected named keys to be ignored, got %q", input.Value())
+	}
+}
+
 func TestInput_Submit(t *testing.T) {
 	var submitted string
 	input := NewInput()
