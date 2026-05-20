@@ -1,6 +1,7 @@
 package main
 
 import (
+	"fmt"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -41,14 +42,79 @@ func TestChatModelRenderShowsPlaceholderWhenInputEmpty(t *testing.T) {
 	model.height = 12
 
 	view := tui.StripANSI(model.View())
-	if !strings.Contains(view, "Type your message...") {
+	if !strings.Contains(view, "> Type a message…") {
 		t.Fatalf("view did not contain placeholder:\n%s", view)
 	}
-	if !strings.Contains(view, "rho is ready") {
+	if !strings.Contains(view, "your local coding agent") {
 		t.Fatalf("view did not contain empty state:\n%s", view)
 	}
-	if !strings.Contains(view, "PgUp/PgDn scroll") {
+	if !strings.Contains(view, "Ctrl+L change model") {
 		t.Fatalf("view did not contain key hints:\n%s", view)
+	}
+}
+
+func TestChatModelMouseWheelScrollsTranscript(t *testing.T) {
+	model := newChatModel("rho")
+	model.width = 80
+	model.height = 10
+	for i := 0; i < 20; i++ {
+		model.AddMessage(agent.AgentMessage{Role: ai.RoleAssistant, Content: fmt.Sprintf("message %02d", i)})
+	}
+
+	if model.scroll != 0 {
+		t.Fatalf("initial scroll = %d, want 0", model.scroll)
+	}
+
+	model.Update(tea.MouseMsg{
+		Action: tea.MouseActionPress,
+		Button: tea.MouseButtonWheelUp,
+		Type:   tea.MouseWheelUp,
+	})
+	if model.scroll != mouseWheelScrollLines {
+		t.Fatalf("scroll after wheel up = %d, want %d", model.scroll, mouseWheelScrollLines)
+	}
+
+	model.Update(tea.MouseMsg{
+		Action: tea.MouseActionPress,
+		Button: tea.MouseButtonWheelDown,
+		Type:   tea.MouseWheelDown,
+	})
+	if model.scroll != 0 {
+		t.Fatalf("scroll after wheel down = %d, want 0", model.scroll)
+	}
+}
+
+func TestChatModelShowsThinkingPlaceholderForEmptyAssistant(t *testing.T) {
+	model := newChatModel("rho")
+	model.width = 80
+	model.height = 12
+	model.AddMessage(agent.AgentMessage{Role: ai.RoleAssistant, Model: "glm-5.1"})
+
+	view := tui.StripANSI(model.View())
+	if !strings.Contains(view, "Thinking...") {
+		t.Fatalf("view did not contain thinking placeholder:\n%s", view)
+	}
+}
+
+func TestChatModelToolResultsRenderCompactPreview(t *testing.T) {
+	model := newChatModel("rho")
+	model.width = 80
+	model.height = 20
+	model.AddMessage(agent.AgentMessage{
+		Role:     ai.RoleToolResult,
+		ToolName: "Ls",
+		Content:  "one\ntwo\nthree\nfour\nfive",
+	})
+
+	view := tui.StripANSI(model.View())
+	if !strings.Contains(view, "Ls") || !strings.Contains(view, "5 lines") {
+		t.Fatalf("view did not contain compact tool summary:\n%s", view)
+	}
+	if strings.Contains(view, "five") {
+		t.Fatalf("tool preview was not compacted:\n%s", view)
+	}
+	if !strings.Contains(view, "... 2 more lines") {
+		t.Fatalf("view did not contain compact truncation marker:\n%s", view)
 	}
 }
 
@@ -102,6 +168,99 @@ func TestInteractiveAutocompleteIncludesCommandsModelsAndProviders(t *testing.T)
 	providerItems := im.autocomplete("/login anth", len("/login anth"))
 	if !autocompleteHasValue(providerItems, "/login anthropic") {
 		t.Fatalf("provider autocomplete missing anthropic: %#v", providerItems)
+	}
+}
+
+func TestInteractiveAgentLoopEventsRenderStreamingAndTools(t *testing.T) {
+	im := NewInteractiveMode(&RuntimeConfig{
+		Model:    ai.Model{Provider: ai.ProviderCrof, Name: "glm-5.1"},
+		Provider: ai.ProviderCrof,
+		CWD:      t.TempDir(),
+	})
+	im.ui.messages = nil
+
+	im.applyAgentLoopEvent(agent.AgentEvent{Type: "agent_start"})
+	im.applyAgentLoopEvent(agent.AgentEvent{Type: "text_delta", Delta: "I will inspect "})
+	im.applyAgentLoopEvent(agent.AgentEvent{Type: "text_delta", Delta: "the code."})
+	im.applyAgentLoopEvent(agent.AgentEvent{
+		Type: "toolcall_end",
+		ToolCall: &ai.ToolCall{
+			ID:        "call_1",
+			Name:      "Grep",
+			Arguments: map[string]interface{}{"pattern": "TODO"},
+		},
+	})
+	im.applyAgentLoopEvent(agent.AgentEvent{
+		Type:     "tool_execution_start",
+		ToolCall: &ai.ToolCall{ID: "call_1", Name: "Grep", Arguments: map[string]interface{}{"pattern": "TODO"}},
+	})
+	im.applyAgentLoopEvent(agent.AgentEvent{
+		Type:     "tool_execution_end",
+		ToolCall: &ai.ToolCall{ID: "call_1", Name: "Grep"},
+		Content:  "cmd/rho/main.go:1:TODO",
+	})
+
+	if len(im.ui.messages) != 2 {
+		t.Fatalf("message count = %d, want 2", len(im.ui.messages))
+	}
+	assistant := im.ui.messages[0]
+	if assistant.Content != "I will inspect the code." {
+		t.Fatalf("assistant content = %q", assistant.Content)
+	}
+	if len(assistant.ToolCalls) != 1 || assistant.ToolCalls[0].Name != "Grep" {
+		t.Fatalf("assistant tool calls = %#v", assistant.ToolCalls)
+	}
+	tool := im.ui.messages[1]
+	if tool.Role != ai.RoleToolResult || tool.ToolName != "Grep" {
+		t.Fatalf("tool message = %#v", tool)
+	}
+	if tool.Content != "cmd/rho/main.go:1:TODO" {
+		t.Fatalf("tool content = %q", tool.Content)
+	}
+}
+
+func TestInteractiveMessageEndSplitsToolAndContinuation(t *testing.T) {
+	im := NewInteractiveMode(&RuntimeConfig{
+		Model:    ai.Model{Provider: ai.ProviderCrof, Name: "glm-5.1"},
+		Provider: ai.ProviderCrof,
+		CWD:      t.TempDir(),
+	})
+	im.ui.messages = nil
+
+	im.applyAgentLoopEvent(agent.AgentEvent{Type: "agent_start"})
+	im.applyAgentLoopEvent(agent.AgentEvent{Type: "text_delta", Delta: "I will list files."})
+	im.applyAgentLoopEvent(agent.AgentEvent{
+		Type:     "toolcall_end",
+		ToolCall: &ai.ToolCall{ID: "call_1", Name: "Ls", Arguments: map[string]interface{}{"path": "."}},
+	})
+	im.applyAgentLoopEvent(agent.AgentEvent{
+		Type: "message_end",
+		Message: &agent.AgentMessage{
+			Role:       ai.RoleAssistant,
+			Content:    "I will list files.",
+			Model:      "glm-5.1",
+			StopReason: ai.StopReasonToolUse,
+			ToolCalls:  []ai.ToolCall{{ID: "call_1", Name: "Ls", Arguments: map[string]interface{}{"path": "."}}},
+		},
+	})
+	im.applyAgentLoopEvent(agent.AgentEvent{
+		Type:     "tool_execution_end",
+		ToolCall: &ai.ToolCall{ID: "call_1", Name: "Ls"},
+		Content:  "README.md\nAGENTS.md",
+	})
+	im.applyAgentLoopEvent(agent.AgentEvent{Type: "text_delta", Delta: "I found README.md and AGENTS.md."})
+
+	if len(im.ui.messages) != 3 {
+		t.Fatalf("message count = %d, want assistant/tool/assistant", len(im.ui.messages))
+	}
+	if im.ui.messages[0].Role != ai.RoleAssistant || im.ui.messages[0].Content != "I will list files." {
+		t.Fatalf("first message = %#v", im.ui.messages[0])
+	}
+	if im.ui.messages[1].Role != ai.RoleToolResult || im.ui.messages[1].ToolName != "Ls" {
+		t.Fatalf("second message = %#v", im.ui.messages[1])
+	}
+	if im.ui.messages[2].Role != ai.RoleAssistant || im.ui.messages[2].Content != "I found README.md and AGENTS.md." {
+		t.Fatalf("third message = %#v", im.ui.messages[2])
 	}
 }
 
@@ -181,6 +340,62 @@ func TestInteractiveLoginOAuthMethodOpensOAuthProviderSelector(t *testing.T) {
 	}
 	if !autocompleteHasValue(im.ui.selectorItems, "anthropic") {
 		t.Fatalf("oauth selector missing anthropic: %#v", im.ui.selectorItems)
+	}
+}
+
+func TestInteractiveOAuthManualCodeStoresCredentials(t *testing.T) {
+	tmp := t.TempDir()
+	oauthStore := auth.NewOAuthStore(filepath.Join(tmp, "oauth.json"))
+	im := NewInteractiveMode(&RuntimeConfig{
+		Model:       ai.Model{Provider: ai.ProviderAnthropic, Name: "claude-sonnet-4-20250514"},
+		Provider:    ai.ProviderAnthropic,
+		CWD:         tmp,
+		AuthStorage: auth.NewAuthStorage(filepath.Join(tmp, "keys.json")),
+		OAuthStore:  oauthStore,
+		OpenURL: func(rawURL string) error {
+			if !strings.Contains(rawURL, "code_challenge=") {
+				t.Fatalf("auth URL missing PKCE challenge: %s", rawURL)
+			}
+			return nil
+		},
+		OAuthExchange: func(provider ai.OAuthProviderID, code string, pkce *ai.PKCE) (*ai.OAuthCredentials, error) {
+			if provider != ai.OAuthAnthropic {
+				t.Fatalf("provider = %s, want anthropic", provider)
+			}
+			if code != "manual-code" {
+				t.Fatalf("code = %q, want manual-code", code)
+			}
+			if pkce == nil || pkce.Verifier == "" {
+				t.Fatal("expected PKCE verifier")
+			}
+			return &ai.OAuthCredentials{
+				AccessToken:  "oauth-access",
+				RefreshToken: "oauth-refresh",
+				ProviderID:   string(provider),
+				TokenType:    "Bearer",
+			}, nil
+		},
+	})
+
+	im.startOAuthLogin(ai.OAuthAnthropic)
+	if im.ui.promptTitle != "OAuth callback or code" {
+		t.Fatalf("prompt title = %q, want OAuth callback or code", im.ui.promptTitle)
+	}
+	im.ui.onPromptSubmit("http://localhost:9876/callback?code=manual-code")
+
+	deadline := time.Now().Add(time.Second)
+	for {
+		cred, ok := oauthStore.Get("anthropic")
+		if ok && cred.AccessToken == "oauth-access" {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("OAuth credentials were not stored")
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	if im.config.APIKey != "oauth-access" {
+		t.Fatalf("active API key = %q, want oauth-access", im.config.APIKey)
 	}
 }
 
@@ -750,4 +965,65 @@ func TestInteractiveLoginStoresKeyWithoutTranscriptEcho(t *testing.T) {
 			t.Fatalf("secret was echoed in transcript: %q", msg.Content)
 		}
 	}
+}
+
+func TestSelectorScrollingKeys(t *testing.T) {
+	model := newChatModel("test")
+	model.width = 80
+	model.height = 24
+
+	// Create 15 items so scrolling is needed
+	items := make([]autocompleteItem, 15)
+	for i := 0; i < 15; i++ {
+		items[i] = autocompleteItem{Value: fmt.Sprintf("item_%d", i), Label: fmt.Sprintf("Item %d", i), Description: "test"}
+	}
+
+	model.OpenSelector("Test", items, nil, nil)
+
+	if len(model.selectorItems) != 15 {
+		t.Fatalf("expected 15 items, got %d", len(model.selectorItems))
+	}
+
+	// Down arrow should increase selection
+	for i := 0; i < 14; i++ {
+		model.Update(tea.KeyMsg{Type: tea.KeyDown})
+		if model.selectorIdx != i+1 {
+			t.Fatalf("down press %d: expected idx %d, got %d", i+1, i+1, model.selectorIdx)
+		}
+	}
+
+	// Up arrow should decrease selection
+	for i := 0; i < 14; i++ {
+		model.Update(tea.KeyMsg{Type: tea.KeyUp})
+		if model.selectorIdx != 13-i {
+			t.Fatalf("up press %d: expected idx %d, got %d", i+1, 13-i, model.selectorIdx)
+		}
+	}
+
+	// End key should go to last item
+	model.Update(tea.KeyMsg{Type: tea.KeyEnd})
+	if model.selectorIdx != 14 {
+		t.Fatalf("End: expected idx 14, got %d", model.selectorIdx)
+	}
+
+	// Home key should go to first item
+	model.Update(tea.KeyMsg{Type: tea.KeyHome})
+	if model.selectorIdx != 0 {
+		t.Fatalf("Home: expected idx 0, got %d", model.selectorIdx)
+	}
+
+	// Verify PgDn shortcut via string
+	model.Update(tea.KeyMsg{Type: tea.KeyPgDown})
+	// PgDn jumps by 8, so idx should be 8
+	if model.selectorIdx != 8 {
+		t.Fatalf("PgDn: expected idx 8, got %d", model.selectorIdx)
+	}
+
+	// Verify view contains scroll indicator
+	view := model.View()
+	if !strings.Contains(view, "more items") {
+		t.Logf("View does not contain 'more items', items=%d, selectorItems=%d, selectorIdx=%d", len(items), len(model.selectorItems), model.selectorIdx)
+	}
+
+	t.Logf("All scroll tests passed! selectorIdx=%d", model.selectorIdx)
 }

@@ -8,13 +8,19 @@ import (
 	"github.com/earendil-works/rho/pkg/tui"
 )
 
-// Footer displays git branch, model, token count, and extension statuses.
+// Footer displays git branch, model, token count, thinking level, cost,
+// session name, auth status, and extension statuses.
 type Footer struct {
 	gitBranch     string
+	sessionName   string
 	modelName     string
 	providerName  string
+	thinkingLevel string
 	tokenCount    int
 	contextWindow int
+	totalCost     float64
+	authStatus    string
+	oauthActive   bool
 	statuses      map[string]string // key -> text from extensions
 	showHelp      bool
 }
@@ -31,16 +37,37 @@ func (f *Footer) SetGitBranch(branch string) {
 	f.gitBranch = branch
 }
 
+// SetSessionName sets the session display name.
+func (f *Footer) SetSessionName(name string) {
+	f.sessionName = name
+}
+
 // SetModel sets the model and provider display.
 func (f *Footer) SetModel(model, provider string) {
 	f.modelName = model
 	f.providerName = provider
 }
 
+// SetThinkingLevel sets the thinking level indicator.
+func (f *Footer) SetThinkingLevel(level string) {
+	f.thinkingLevel = level
+}
+
 // SetTokenCount sets the token count and context window.
 func (f *Footer) SetTokenCount(count, window int) {
 	f.tokenCount = count
 	f.contextWindow = window
+}
+
+// SetTotalCost sets the running total cost display.
+func (f *Footer) SetTotalCost(cost float64) {
+	f.totalCost = cost
+}
+
+// SetAuthStatus sets the auth status text (e.g. "OAuth" or "API key").
+func (f *Footer) SetAuthStatus(status string, oauth bool) {
+	f.authStatus = status
+	f.oauthActive = oauth
 }
 
 // SetStatus sets an extension status by key.
@@ -62,55 +89,80 @@ func (f *Footer) Render(width int) []string {
 		return nil
 	}
 
-	dim := "\x1b[2m"
-	reset := "\x1b[0m"
-	cyan := "\x1b[36m"
-	green := "\x1b[32m"
+	th := tui.DefaultTheme
 
 	var parts []string
 
 	// Git branch
 	if f.gitBranch != "" {
-		parts = append(parts, green+"\u2302 "+f.gitBranch+reset)
+		parts = append(parts, th.Colored("\u2302 "+f.gitBranch, th.Palette.Success))
 	}
 
-	// Model
+	// Session name (nickname)
+	if f.sessionName != "" {
+		parts = append(parts, th.Muted("@ "+f.sessionName))
+	}
+
+	// Model/provider
 	if f.modelName != "" {
 		modelStr := f.modelName
 		if f.providerName != "" {
 			modelStr = f.providerName + "/" + f.modelName
 		}
-		parts = append(parts, cyan+modelStr+reset)
+		parts = append(parts, th.Colored(modelStr, th.Palette.Accent))
 	}
 
-	// Token count
+	// Thinking level
+	if f.thinkingLevel != "" && f.thinkingLevel != "off" {
+		parts = append(parts, th.Muted("\u2606 "+f.thinkingLevel))
+	}
+
+	// Token count + context %
 	if f.tokenCount > 0 {
-		tokenStr := fmt.Sprintf("%d", f.tokenCount)
+		tokenStr := fmt.Sprintf("%d tok", f.tokenCount)
 		if f.contextWindow > 0 {
 			pct := int(float64(f.tokenCount) / float64(f.contextWindow) * 100)
 			tokenStr = fmt.Sprintf("%d/%d (%d%%)", f.tokenCount, f.contextWindow, pct)
 		}
-		parts = append(parts, dim+tokenStr+reset)
+		parts = append(parts, th.Muted(tokenStr))
+	}
+
+	// Cost
+	if f.totalCost > 0 {
+		parts = append(parts, th.Muted(fmt.Sprintf("$%.4f", f.totalCost)))
+	}
+
+	// Auth status
+	if f.authStatus != "" {
+		authIcon := "\u2663" // club = key
+		if f.oauthActive {
+			authIcon = "\u2666" // diamond = OAuth
+		}
+		parts = append(parts, th.Muted(authIcon+f.authStatus))
 	}
 
 	// Extension statuses
 	for _, status := range f.statuses {
-		parts = append(parts, dim+status+reset)
+		parts = append(parts, th.Muted(status))
 	}
 
 	// Help hint
 	if f.showHelp {
-		parts = append(parts, dim+"? for help"+reset)
+		parts = append(parts, th.Muted("? for help"))
 	}
 
-	line := strings.Join(parts, dim+" | "+reset)
+	// Use subtle middle dot as separator instead of pipe
+	sep := th.Muted(" \u00b7 ")
+	line := strings.Join(parts, sep)
+
+	// Pad to full width so background fills
 	if tui.VisibleWidth(line) > width {
 		line = tui.SliceByColumn(line, 0, width, true)
-	} else if tui.VisibleWidth(line) < width {
-		line += strings.Repeat(" ", width-tui.VisibleWidth(line))
+	} else {
+		line += strings.Repeat(" ", max(0, width-tui.VisibleWidth(line)))
 	}
 
-	return []string{dim + line + reset}
+	return []string{th.Muted(line)}
 }
 
 func (f *Footer) HandleInput(data string) {}

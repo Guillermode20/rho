@@ -50,7 +50,7 @@ var (
 			Padding(0, 1)
 	StyleError   = lipgloss.NewStyle().Foreground(lipgloss.Color("196"))
 	StyleSuccess = lipgloss.NewStyle().Foreground(lipgloss.Color("82"))
-	StylePrompt  = lipgloss.NewStyle().Foreground(lipgloss.Color("39"))
+	StylePrompt  = lipgloss.NewStyle().Foreground(lipgloss.Color("75"))
 	StyleMuted   = lipgloss.NewStyle().Foreground(lipgloss.Color("242"))
 )
 

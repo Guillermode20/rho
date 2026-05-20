@@ -22,25 +22,26 @@ type MarkdownTheme struct {
 	Horizontal  func() string
 }
 
-// DefaultMarkdownTheme returns a simple markdown theme using ANSI codes.
+// DefaultMarkdownTheme returns a markdown theme using the design system palette.
 func DefaultMarkdownTheme() MarkdownTheme {
-	bold := "\x1b[1m"
-	reset := "\x1b[0m"
-	dim := "\x1b[2m"
-	cyan := "\x1b[36m"
-	yellow := "\x1b[33m"
-	green := "\x1b[32m"
-	blue := "\x1b[34m"
+	th := DefaultTheme
+	reset := th.Reset()
+	bold := th.ansi.bold
+	dim := th.ansi.dim
+	fg75 := th.ansi.fg(75)  // accent blue for headings
+	fg120 := th.ansi.fg(120) // green for code
+	fg221 := th.ansi.fg(221) // amber for inline code
+	fg242 := th.ansi.fg(242) // dim gray for metadata
 
 	return MarkdownTheme{
-		H1: func(text string) string { return bold + cyan + text + reset },
-		H2: func(text string) string { return bold + cyan + text + reset },
-		H3: func(text string) string { return bold + cyan + text + reset },
+		H1: func(text string) string { return bold + fg75 + text + reset },
+		H2: func(text string) string { return bold + fg75 + text + reset },
+		H3: func(text string) string { return bold + fg75 + text + reset },
 		Bold: func(text string) string { return bold + text + reset },
 		Italic: func(text string) string { return dim + text + reset },
-		Code: func(text string) string { return yellow + text + reset },
-		CodeBlock: func(text string) string { return green + text + reset },
-		Link: func(text, url string) string { return blue + text + reset + dim + " (" + url + ")" + reset },
+		Code: func(text string) string { return fg221 + text + reset },
+		CodeBlock: func(text string) string { return fg120 + text + reset },
+		Link: func(text, url string) string { return fg75 + text + reset + fg242 + " (" + url + ")" + reset },
 		Blockquote: func(text string) string { return dim + "▎" + text + reset },
 		ListBullet: func(text string) string { return "• " + text },
 		ListNumber: func(text string) string { return text },
