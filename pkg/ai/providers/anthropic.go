@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"os"
 	"strings"
 	"time"
 
@@ -62,18 +63,58 @@ func StreamSimpleAnthropic(model ai.Model, ctx ai.Context, options *ai.SimpleStr
 	return streamAnthropicMessages(model, ctx, opts, callback)
 }
 
+// resolveAnthropicCacheRetention resolves the cache retention setting from opts or env var.
+// Returns the resolved cache retention and the cache control map to inject into requests.
+func resolveAnthropicCacheRetention(opts *AnthropicOptions) (ai.CacheRetention, map[string]interface{}) {
+	cacheRetention := opts.CacheRetention
+	if cacheRetention == "" {
+		if os.Getenv("PI_CACHE_RETENTION") == "long" {
+			cacheRetention = ai.CacheRetentionLong
+		} else {
+			cacheRetention = ai.CacheRetentionShort
+		}
+	}
+	var cacheControl map[string]interface{}
+	if cacheRetention != ai.CacheRetentionNone {
+		cacheControl = map[string]interface{}{"type": "ephemeral"}
+	}
+	return cacheRetention, cacheControl
+}
+
+func anthropicCompatibleAPIKey(provider ai.Provider) string {
+	switch provider {
+	case ai.ProviderKimiCoding:
+		return GetEnvAPIKey("KIMI_API_KEY")
+	case ai.ProviderMinimax, ai.ProviderMinimaxCN:
+		return GetEnvAPIKey("MINIMAX_API_KEY", "MINIMAX_CN_API_KEY")
+	default:
+		return GetEnvAPIKey("ANTHROPIC_OAUTH_TOKEN", "ANTHROPIC_API_KEY", "CLAUDE_API_KEY")
+	}
+}
+
+func anthropicCompatibleBaseURL(provider ai.Provider) string {
+	switch provider {
+	case ai.ProviderKimiCoding:
+		return BaseURLFromEnv("KIMI_BASE_URL", "https://api.kimi.com/coding")
+	case ai.ProviderMinimax, ai.ProviderMinimaxCN:
+		return BaseURLFromEnv("MINIMAX_BASE_URL", "https://api.minimax.chat")
+	default:
+		return BaseURLFromEnv("ANTHROPIC_BASE_URL", anthropicDefaultBaseURL)
+	}
+}
+
 func streamAnthropicMessages(model ai.Model, ctx ai.Context, opts *AnthropicOptions, callback ai.StreamEventCallback) error {
 	apiKey := opts.APIKey
 	if apiKey == "" {
-		apiKey = GetEnvAPIKey("ANTHROPIC_API_KEY", "CLAUDE_API_KEY")
+		apiKey = anthropicCompatibleAPIKey(model.Provider)
 	}
 	if apiKey == "" {
-		return fmt.Errorf("ANTHROPIC_API_KEY not set")
+		return fmt.Errorf("%s API key not set", model.Provider)
 	}
 
 	baseURL := model.BaseURL
 	if baseURL == "" {
-		baseURL = BaseURLFromEnv("ANTHROPIC_BASE_URL", anthropicDefaultBaseURL)
+		baseURL = anthropicCompatibleBaseURL(model.Provider)
 	}
 
 	// Build the request body
@@ -90,12 +131,35 @@ func streamAnthropicMessages(model ai.Model, ctx ai.Context, opts *AnthropicOpti
 	}
 
 	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("x-api-key", apiKey)
-	req.Header.Set("anthropic-version", anthropicAPIVersion)
+	if model.Provider == ai.ProviderAnthropic {
+		req.Header.Set("x-api-key", apiKey)
+		req.Header.Set("anthropic-version", anthropicAPIVersion)
+	} else {
+		req.Header.Set("x-api-key", apiKey)
+		req.Header.Set("Authorization", "Bearer "+apiKey)
+	}
+
+	// Add model-specific headers (e.g. User-Agent for Kimi)
+	for k, v := range model.Headers {
+		req.Header.Set(k, v)
+	}
+	// Add request-specific headers
+	for k, v := range opts.Headers {
+		req.Header.Set(k, v)
+	}
 
 	// Add beta headers
+	hasPromptCaching := false
 	for _, beta := range opts.BetaHeaders {
+		if beta == "prompt-caching-2024-07-31" {
+			hasPromptCaching = true
+		}
 		req.Header.Add("anthropic-beta", beta)
+	}
+	// Default cache retention check
+	cacheRetention, _ := resolveAnthropicCacheRetention(opts)
+	if !hasPromptCaching && cacheRetention != ai.CacheRetentionNone && model.Provider == ai.ProviderAnthropic {
+		req.Header.Add("anthropic-beta", "prompt-caching-2024-07-31")
 	}
 
 	// Send request
@@ -124,6 +188,9 @@ func buildAnthropicRequest(model ai.Model, ctx ai.Context, opts *AnthropicOption
 	if opts.MaxTokens > 0 {
 		body["max_tokens"] = opts.MaxTokens
 	}
+
+	// Resolve cache control
+	_, cacheControl := resolveAnthropicCacheRetention(opts)
 
 	// Convert messages
 	var messages []map[string]interface{}
@@ -171,6 +238,46 @@ func buildAnthropicRequest(model ai.Model, ctx ai.Context, opts *AnthropicOption
 		}
 	}
 
+	// Inject cache control to the last user message if caching is enabled
+	// Make a copy of the last message to avoid mutating the original content.
+	if cacheControl != nil && len(messages) > 0 {
+		lastIdx := len(messages) - 1
+		lastMsg := messages[lastIdx]
+		if lastMsg["role"] == "user" {
+			// Create a shallow copy of the last message
+			msgCopy := make(map[string]interface{}, len(lastMsg))
+			for k, v := range lastMsg {
+				msgCopy[k] = v
+			}
+			content := lastMsg["content"]
+			if s, ok := content.(string); ok {
+				msgCopy["content"] = []map[string]interface{}{
+					{
+						"type":          "text",
+						"text":          s,
+						"cache_control": cacheControl,
+					},
+				}
+			} else if list, ok := content.([]map[string]interface{}); ok && len(list) > 0 {
+				// Copy the list and inject cache_control into last block
+				copiedList := make([]map[string]interface{}, len(list))
+				copy(copiedList, list)
+				copiedList[len(copiedList)-1] = copyMap(list[len(list)-1])
+				copiedList[len(copiedList)-1]["cache_control"] = cacheControl
+				msgCopy["content"] = copiedList
+			} else if list, ok := content.([]interface{}); ok && len(list) > 0 {
+				copiedList := make([]interface{}, len(list))
+				copy(copiedList, list)
+				if block, ok := list[len(list)-1].(map[string]interface{}); ok {
+					copiedList[len(copiedList)-1] = copyMap(block)
+					copiedList[len(copiedList)-1].(map[string]interface{})["cache_control"] = cacheControl
+				}
+				msgCopy["content"] = copiedList
+			}
+			messages[lastIdx] = msgCopy
+		}
+	}
+
 	body["messages"] = messages
 
 	// System prompt
@@ -178,20 +285,30 @@ func buildAnthropicRequest(model ai.Model, ctx ai.Context, opts *AnthropicOption
 		systemPrompt = ctx.SystemPrompt
 	}
 	if systemPrompt != "" {
-		body["system"] = []map[string]interface{}{
-			{"type": "text", "text": systemPrompt},
+		if cacheControl != nil {
+			body["system"] = []map[string]interface{}{
+				{"type": "text", "text": systemPrompt, "cache_control": cacheControl},
+			}
+		} else {
+			body["system"] = []map[string]interface{}{
+				{"type": "text", "text": systemPrompt},
+			}
 		}
 	}
 
 	// Tools
 	if len(ctx.Tools) > 0 {
 		var tools []map[string]interface{}
-		for _, t := range ctx.Tools {
-			tools = append(tools, map[string]interface{}{
-				"name":        t.Name,
-				"description": t.Description,
+		for idx, t := range ctx.Tools {
+			toolMap := map[string]interface{}{
+				"name":         t.Name,
+				"description":  t.Description,
 				"input_schema": t.Parameters,
-			})
+			}
+			if cacheControl != nil && idx == len(ctx.Tools)-1 {
+				toolMap["cache_control"] = cacheControl
+			}
+			tools = append(tools, toolMap)
 		}
 		body["tools"] = tools
 	}
@@ -260,6 +377,15 @@ func convertContentBlocks(blocks []ai.ContentBlock) []map[string]interface{} {
 		}
 	}
 	return result
+}
+
+// copyMap creates a shallow copy of a map[string]interface{}.
+func copyMap(original map[string]interface{}) map[string]interface{} {
+	cp := make(map[string]interface{}, len(original))
+	for k, v := range original {
+		cp[k] = v
+	}
+	return cp
 }
 
 // parseAnthropicSSE parses the Anthropic SSE stream.

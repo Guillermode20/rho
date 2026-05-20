@@ -72,6 +72,7 @@ func NewAgentSessionServices(opts CreateAgentSessionServicesOptions) (*AgentSess
 	}
 
 	authStorage := auth.NewAuthStorage(filepath.Join(rhoDir, "auth", "keys.json"))
+	modelReg.SetAuthProvider(authStorage)
 	oauthStore := auth.NewOAuthStore(filepath.Join(rhoDir, "auth", "oauth.json"))
 	sessionMgr := agent.NewSessionManager(filepath.Join(rhoDir, "sessions"))
 	settingsMgr := NewSettingsManager(filepath.Join(rhoDir, "settings"), "")

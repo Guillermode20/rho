@@ -26,6 +26,7 @@ import (
 	"github.com/earendil-works/rho/pkg/agent/tools"
 	agentutils "github.com/earendil-works/rho/pkg/agent/utils"
 	"github.com/earendil-works/rho/pkg/ai"
+	"github.com/earendil-works/rho/pkg/ai/providers"
 	"github.com/earendil-works/rho/pkg/tui"
 )
 
@@ -57,6 +58,18 @@ type chatModel struct {
 	mdTheme  tui.MarkdownTheme
 	// Design system
 	theme *tui.Theme
+
+	// Metadata footer fields
+	modelName     string
+	providerName  string
+	tokenCount    int
+	contextWindow int
+	totalCost     float64
+	gitBranch     string
+
+	// Cached cost map: rebuilt only when needed (lazy, set to nil to force rebuild)
+	costMap      map[string]ai.ModelDefinition
+	costMapDirty bool
 
 	onSubmit          func(string)
 	onMessage         func(tea.Msg)
@@ -540,11 +553,14 @@ func (m *chatModel) View() string {
 	}
 
 	// ── Assemble ──
-	parts := make([]string, 0, 5)
+	parts := make([]string, 0, 6)
 	parts = append(parts, status)
 	parts = append(parts, viewport)
 	parts = append(parts, hint)
 	parts = append(parts, input)
+	if footer := m.renderFooter(width); footer != "" {
+		parts = append(parts, footer)
+	}
 	if suggestions := m.renderAutocomplete(width); suggestions != "" {
 		parts = append(parts, suggestions)
 	}
@@ -555,6 +571,7 @@ func (m *chatModel) View() string {
 func (m *chatModel) AddMessage(msg agent.AgentMessage) {
 	m.messages = append(m.messages, msg)
 	m.scroll = 0
+	m.recalculateStats()
 }
 
 func (m *chatModel) UpdateMessage(index int, msg agent.AgentMessage) {
@@ -563,6 +580,142 @@ func (m *chatModel) UpdateMessage(index int, msg agent.AgentMessage) {
 	}
 	m.messages[index] = msg
 	m.scroll = 0
+	m.recalculateStats()
+}
+
+func (m *chatModel) ClearMessages() {
+	m.messages = nil
+	m.scroll = 0
+	m.recalculateStats()
+}
+
+func (m *chatModel) SetModel(model, provider string) {
+	m.modelName = model
+	m.providerName = provider
+}
+
+func (m *chatModel) SetTokenCount(count, window int) {
+	m.tokenCount = count
+	m.contextWindow = window
+}
+
+func (m *chatModel) SetTotalCost(cost float64) {
+	m.totalCost = cost
+}
+
+func (m *chatModel) SetGitBranch(branch string) {
+	m.gitBranch = branch
+}
+
+// buildCostMap builds a lookup map from provider/model key to ModelDefinition for fast cost calculation.
+func buildCostMap() map[string]ai.ModelDefinition {
+	m := make(map[string]ai.ModelDefinition)
+	for _, def := range ai.DefaultModels() {
+		key := string(def.Provider) + "/" + def.Name
+		m[key] = def
+	}
+	return m
+}
+
+func (m *chatModel) getCostMap() map[string]ai.ModelDefinition {
+	if m.costMap == nil || m.costMapDirty {
+		m.costMap = buildCostMap()
+		m.costMapDirty = false
+	}
+	return m.costMap
+}
+
+func (m *chatModel) invalidateCostMap() {
+	m.costMapDirty = true
+}
+
+func (m *chatModel) recalculateStats() {
+	var lastTokens int
+	var totalCost float64
+
+	costMap := m.getCostMap()
+
+	for _, msg := range m.messages {
+		if msg.Usage != nil {
+			lastTokens = msg.Usage.TotalTokens
+			if msg.Usage.Cost.Total > 0 {
+				totalCost += msg.Usage.Cost.Total
+			} else if msg.Usage.Input > 0 || msg.Usage.Output > 0 {
+				key := string(msg.Provider) + "/" + msg.Model
+				if def, ok := costMap[key]; ok {
+					c := ai.CalculateCost(def, *msg.Usage)
+					totalCost += c.Total
+				}
+			}
+		}
+	}
+
+	m.tokenCount = lastTokens
+	m.totalCost = totalCost
+}
+
+func (m *chatModel) renderFooter(width int) string {
+	th := m.theme
+	if th == nil {
+		th = tui.DefaultTheme
+	}
+	if width <= 0 {
+		return ""
+	}
+
+	var parts []string
+
+	// Git branch
+	if m.gitBranch != "" {
+		parts = append(parts, th.Colored("⎇  "+m.gitBranch, th.Palette.Success))
+	}
+
+	// Model/provider
+	if m.modelName != "" {
+		modelStr := m.modelName
+		if m.providerName != "" {
+			modelStr = m.providerName + "/" + m.modelName
+		}
+		parts = append(parts, th.Colored(modelStr, th.Palette.Accent))
+	}
+
+	// Token usage & context window
+	if m.contextWindow > 0 {
+		tokenStr := fmt.Sprintf("%d tok", m.tokenCount)
+		pct := float64(m.tokenCount) / float64(m.contextWindow) * 100
+		var pctStr string
+		if pct < 1.0 && m.tokenCount > 0 {
+			pctStr = "<1%"
+		} else {
+			pctStr = fmt.Sprintf("%d%%", int(pct))
+		}
+		tokenStr = fmt.Sprintf("%s / %d ctx (%s)", tokenStr, m.contextWindow, pctStr)
+		parts = append(parts, th.Muted(tokenStr))
+	} else if m.tokenCount > 0 {
+		parts = append(parts, th.Muted(fmt.Sprintf("%d tok", m.tokenCount)))
+	}
+
+	// Cost — use %g to avoid trailing zeros (0.0045 not 0.00450000)
+	if m.totalCost > 0 {
+		parts = append(parts, th.Colored(fmt.Sprintf("$%g", m.totalCost), th.Palette.Warning))
+	}
+
+	if len(parts) == 0 {
+		return ""
+	}
+
+	// Build the line
+	sep := th.Muted(" · ")
+	line := strings.Join(parts, sep)
+
+	// Pad to full width
+	if tui.VisibleWidth(line) > width {
+		line = tui.SliceByColumn(line, 0, width, true)
+	} else {
+		line += strings.Repeat(" ", max(0, width-tui.VisibleWidth(line)))
+	}
+
+	return line
 }
 
 func (m *chatModel) Message(index int) (agent.AgentMessage, bool) {
@@ -627,7 +780,11 @@ func (m *chatModel) viewportHeight() int {
 		return 20
 	}
 	inputLines := len(strings.Split(m.inputTextWithCursor(false), "\n")) + 2
-	return max(3, m.height-2-inputLines-m.autocompleteHeight()-m.selectorHeight()-m.promptHeight())
+	footerLines := 0
+	if m.modelName != "" || m.gitBranch != "" || m.tokenCount > 0 || m.totalCost > 0 {
+		footerLines = 1
+	}
+	return max(3, m.height-2-inputLines-m.autocompleteHeight()-m.selectorHeight()-m.promptHeight()-footerLines)
 }
 
 func (m *chatModel) renderTranscript(width, height int) string {
@@ -1159,6 +1316,33 @@ func NewInteractiveMode(cfg *RuntimeConfig) *InteractiveMode {
 		_ = themeMgr.SetActive(selectedTheme)
 	}
 
+	services, err := codecore.NewAgentSessionServices(codecore.CreateAgentSessionServicesOptions{
+		ExtDirs: cfg.ExtDirs,
+	})
+	var coordinator *codecore.RuntimeCoordinator
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Warning: could not initialize agent services: %v\n", err)
+	} else {
+		services.AuthStorage = cfg.AuthStorage
+		services.OAuthStore = cfg.OAuthStore
+		services.Settings = cfg.Settings
+		services.ModelReg.SetAuthProvider(cfg.AuthStorage)
+
+		coordinator = codecore.NewRuntimeCoordinator(
+			services,
+			cfg.OAuthStore,
+			cfg.AuthStorage,
+			themeMgr,
+			cfg.Settings,
+			sessionMgr,
+			cfg.Model,
+			cfg.Provider,
+			cfg.APIKey,
+			cfg.CWD,
+			agent.CurrentSessionID(),
+		)
+	}
+
 	im := &InteractiveMode{
 		config:              cfg,
 		extRuntime:          extRuntime,
@@ -1169,6 +1353,7 @@ func NewInteractiveMode(cfg *RuntimeConfig) *InteractiveMode {
 		extensionStatuses:   make(map[string]string),
 		streamingMessageIdx: -1,
 		pendingToolMessages: make(map[string]int),
+		coordinator:         coordinator,
 	}
 
 	// Set up UI on the BTModel
@@ -1180,9 +1365,12 @@ func NewInteractiveMode(cfg *RuntimeConfig) *InteractiveMode {
 
 // Run starts the interactive mode.
 func (im *InteractiveMode) Run() error {
-	defer im.extCtx.ExtensionRuntime.FireSessionShutdown(im.extCtx, extensions.SessionShutdownEvent{
-		Reason: extensions.SessionQuit,
-	})
+	defer func() {
+		im.extCtx.ExtensionRuntime.FireSessionShutdown(im.extCtx, extensions.SessionShutdownEvent{
+			Reason: extensions.SessionQuit,
+		})
+		im.extRuntime.StopAllProcesses()
+	}()
 
 	// Fire session start
 	im.extCtx.ExtensionRuntime.FireSessionStart(im.extCtx, extensions.SessionStartEvent{
@@ -1198,6 +1386,13 @@ func (im *InteractiveMode) setupUI() {
 	status := im.statusText("")
 	im.ui = newChatModel(status)
 	im.applyActiveTheme()
+
+	// Initialize metadata footer details
+	im.ui.SetModel(im.config.Model.Name, string(im.config.Provider))
+	im.ui.SetGitBranch(agentutils.GetGitBranch(im.config.CWD))
+	def := providers.GuessModelDefinition(im.config.Provider, im.config.Model.Name)
+	im.ui.SetTokenCount(0, def.ContextWindow)
+
 	im.ui.onMessage = func(msg tea.Msg) {
 		im.handleCustomMessage(msg)
 	}
@@ -1497,6 +1692,9 @@ func (im *InteractiveMode) handlePendingLogin(value string) {
 		im.config.APIKey = key
 	}
 	im.addSystemMessage(fmt.Sprintf("Saved API key for %s in %s.", provider, shortenPath(defaultAuthKeysPath())))
+	if im.coordinator != nil && im.coordinator.Services != nil && im.coordinator.Services.ModelReg != nil {
+		im.coordinator.Services.ModelReg.FetchModelsAsync(ai.Provider(provider))
+	}
 }
 
 func (im *InteractiveMode) handleSlashCommand(value string) bool {
@@ -1772,7 +1970,7 @@ func (im *InteractiveMode) resumeSession(sessionID string) {
 	if header.CWD != "" {
 		im.config.CWD = header.CWD
 	}
-	im.ui.messages = nil
+	im.ui.ClearMessages()
 	im.addWelcomeMessage()
 	for _, msg := range messages {
 		im.ui.AddMessage(msg)
@@ -1783,7 +1981,7 @@ func (im *InteractiveMode) resumeSession(sessionID string) {
 
 func (im *InteractiveMode) startNewSession() {
 	im.sessionID = agent.CurrentSessionID()
-	im.ui.messages = nil
+	im.ui.ClearMessages()
 	im.ui.ClearInput()
 	im.addWelcomeMessage()
 	im.ui.SetStatus(im.statusText(""))
@@ -2019,6 +2217,9 @@ func (im *InteractiveMode) handleLoginCommand(args []string) {
 			im.config.APIKey = key
 		}
 		im.addSystemMessage(fmt.Sprintf("Saved API key for %s in %s.", provider, shortenPath(defaultAuthKeysPath())))
+		if im.coordinator != nil && im.coordinator.Services != nil && im.coordinator.Services.ModelReg != nil {
+			im.coordinator.Services.ModelReg.FetchModelsAsync(ai.Provider(provider))
+		}
 		return
 	}
 
@@ -2089,6 +2290,9 @@ func (im *InteractiveMode) handleLogoutCommand(args []string) {
 		im.config.APIKey = resolveAPIKey(im.config.Model, im.config.AuthStorage)
 	}
 	im.addSystemMessage(fmt.Sprintf("Removed saved API key for %s.", provider))
+	if im.coordinator != nil && im.coordinator.Services != nil && im.coordinator.Services.ModelReg != nil {
+		im.coordinator.Services.ModelReg.ResetProviderModels(ai.Provider(provider))
+	}
 }
 
 func (im *InteractiveMode) handleModelCommand(args []string) {
@@ -2098,11 +2302,21 @@ func (im *InteractiveMode) handleModelCommand(args []string) {
 		return
 	}
 	query := strings.ToLower(strings.Join(args, " "))
+	var bestModel *ai.ModelDefinition
+	bestPriority := 9999
 	for _, model := range ai.DefaultModels() {
 		if strings.ToLower(model.Name) == query || strings.ToLower(string(model.Provider)+"/"+model.Name) == query {
-			im.selectModel(model)
-			return
+			prio := ai.ProviderPriority(model.Provider)
+			if prio < bestPriority {
+				m := model
+				bestModel = &m
+				bestPriority = prio
+			}
 		}
+	}
+	if bestModel != nil {
+		im.selectModel(*bestModel)
+		return
 	}
 	im.showModelSelector(query)
 }
@@ -2165,7 +2379,7 @@ func (im *InteractiveMode) showModelSelector(query string) {
 		im.addSystemMessage("No models matched " + query + ".")
 		return
 	}
-	// If no models are actually available (have auth), show a note
+	// Check if any models actually have auth configured
 	noAvailable := true
 	for _, model := range ai.DefaultModels() {
 		value := string(model.Provider) + "/" + model.Name
@@ -2178,6 +2392,7 @@ func (im *InteractiveMode) showModelSelector(query string) {
 			break
 		}
 	}
+
 	im.ui.OpenSelector("Select model", items, func(item autocompleteItem) {
 		for _, model := range ai.DefaultModels() {
 			if item.Value == string(model.Provider)+"/"+model.Name {
@@ -2188,7 +2403,7 @@ func (im *InteractiveMode) showModelSelector(query string) {
 	}, func() {
 		im.addSystemMessage("Model selection cancelled.")
 	})
-	// Show a system message if no models have auth configured
+
 	if noAvailable && query == "" {
 		im.addSystemMessage("No API keys configured. Configure one with /login to use that provider's models.")
 	}
@@ -2203,6 +2418,8 @@ func (im *InteractiveMode) selectModel(model ai.ModelDefinition) {
 	}
 	im.config.Provider = model.Provider
 	im.config.APIKey = resolveAPIKey(im.config.Model, im.config.AuthStorage)
+	im.ui.SetModel(model.Name, string(model.Provider))
+	im.ui.SetTokenCount(im.ui.tokenCount, model.ContextWindow)
 	im.ui.SetStatus(im.statusText(""))
 	im.addSystemMessage(fmt.Sprintf("Selected model: %s/%s", model.Provider, model.Name))
 }
@@ -2349,10 +2566,14 @@ func (im *InteractiveMode) modelAutocomplete(cmd, prefix string) []autocompleteI
 		if prefix != "" && !strings.Contains(haystack, prefix) {
 			continue
 		}
+		desc := string(model.Provider)
+		if !providerHasAuth(model.Provider, im.config.AuthStorage, im.config.OAuthStore) {
+			desc += " (no API key)"
+		}
 		items = append(items, autocompleteItem{
 			Value:       value,
 			Label:       model.Name,
-			Description: string(model.Provider),
+			Description: desc,
 		})
 	}
 	return items
@@ -2432,11 +2653,13 @@ func (im *InteractiveMode) runAgent(ctx context.Context, prompt string, turnMess
 	extTools := im.extRuntime.GetCustomTools()
 	allTools := extensions.MergeTools(builtinTools, extTools)
 	systemPromptText := systemprompt.Build(systemprompt.BuildOptions{
-		BaseTemplate: im.config.SystemPrompt,
-		Tools:        allTools,
-		CWD:          im.config.CWD,
-		ModelName:    im.config.Model.Name,
-		ProviderName: string(im.config.Provider),
+		BaseTemplate:          im.config.SystemPrompt,
+		Tools:                 allTools,
+		CWD:                   im.config.CWD,
+		ModelName:             im.config.Model.Name,
+		ProviderName:          string(im.config.Provider),
+		ExtensionInstructions: im.extRuntime.GetPromptPatches(),
+		Skills:                im.extRuntime.GetCustomSkills(),
 	})
 
 	context := agent.AgentContext{

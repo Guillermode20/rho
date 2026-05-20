@@ -4,11 +4,14 @@ package codecore
 
 import (
 	"fmt"
+	"os"
+	"reflect"
 	"sort"
 	"strings"
 	"sync"
 
 	"github.com/earendil-works/rho/pkg/ai"
+	"github.com/earendil-works/rho/pkg/ai/providers"
 )
 
 // ModelRegistry manages model lookup, registration, and metadata.
@@ -24,7 +27,7 @@ type ModelRegistry struct {
 
 // ModelAuthProvider resolves API keys for models.
 type ModelAuthProvider interface {
-	GetAPIKey(provider ai.Provider) (string, bool)
+	GetAPIKey(provider string) (string, bool)
 }
 
 // NewModelRegistry creates a new ModelRegistry.
@@ -39,11 +42,20 @@ func NewModelRegistry() *ModelRegistry {
 	return r
 }
 
-// SetAuthProvider sets the auth provider for API key resolution.
+// SetAuthProvider sets the auth provider for API key resolution and triggers async fetches.
 func (r *ModelRegistry) SetAuthProvider(ap ModelAuthProvider) {
+	if ap == nil {
+		return
+	}
+	if val := reflect.ValueOf(ap); val.Kind() == reflect.Ptr && val.IsNil() {
+		return
+	}
+
 	r.mu.Lock()
-	defer r.mu.Unlock()
 	r.authSt = ap
+	r.mu.Unlock()
+
+	r.FetchAllModelsAsync()
 }
 
 func (r *ModelRegistry) registerBuiltins() {
@@ -62,7 +74,7 @@ func (r *ModelRegistry) registerModel(m ai.Model) {
 	r.models = append(r.models, m)
 	key := string(m.Provider) + "/" + m.Name
 	r.byName[key] = m
-	if _, exists := r.byID[m.Name]; !exists {
+	if existing, exists := r.byID[m.Name]; !exists || ai.ProviderPriority(m.Provider) < ai.ProviderPriority(existing.Provider) {
 		r.byID[m.Name] = m
 	}
 	r.byAPI[m.API] = append(r.byAPI[m.API], m)
@@ -281,3 +293,149 @@ func (r *ModelRegistry) String() string {
 	sort.Strings(parts)
 	return fmt.Sprintf("ModelRegistry(%s)", strings.Join(parts, " "))
 }
+
+// ResolveAPIKey checks both the auth provider and fallback environment variables for a provider.
+func (r *ModelRegistry) ResolveAPIKey(provider ai.Provider) string {
+	r.mu.RLock()
+	auth := r.authSt
+	r.mu.RUnlock()
+
+	if auth != nil {
+		if key, ok := auth.GetAPIKey(string(provider)); ok && strings.TrimSpace(key) != "" {
+			return key
+		}
+	}
+
+	// Fallback to env vars
+	for _, envKey := range ai.ProviderEnvKeys(provider) {
+		if val := os.Getenv(envKey); val != "" {
+			return val
+		}
+	}
+
+	return ""
+}
+
+// FetchModelsAsync fetches models for a provider asynchronously and updates the registry.
+// fetchInFlight tracks in-flight model fetches per provider to prevent duplicate goroutines.
+var fetchInFlight sync.Map
+
+// FetchModelsAsync fetches models for a provider asynchronously and updates the registry.
+// Duplicate fetches for the same provider are skipped if one is already in-flight.
+func (r *ModelRegistry) FetchModelsAsync(provider ai.Provider) {
+	key := r.ResolveAPIKey(provider)
+	if key == "" {
+		return
+	}
+
+	// Prevent duplicate in-flight fetches for the same provider
+	provKey := string(provider)
+	if _, loaded := fetchInFlight.LoadOrStore(provKey, true); loaded {
+		return
+	}
+
+	go func() {
+		defer fetchInFlight.Delete(provKey)
+
+		// FetchModelsForProvider has its own 10s internal timeout;
+		// goroutine won't leak even if the provider's API hangs.
+		defs, err := providers.FetchModelsForProvider(provider, key)
+		if err != nil {
+			// Fail silently to keep existing/hardcoded models
+			return
+		}
+		if len(defs) == 0 {
+			return
+		}
+
+		// Update global active models list
+		ai.UpdateActiveProviderModels(provider, defs)
+
+		var models []ai.Model
+		for _, def := range defs {
+			models = append(models, ai.Model{
+				API:      def.API,
+				Provider: def.Provider,
+				Name:     def.Name,
+				BaseURL:  def.BaseURL,
+			})
+		}
+		r.UpdateProviderModels(provider, models)
+	}()
+}
+
+// FetchAllModelsAsync fetches models for all unique providers with configured auth.
+func (r *ModelRegistry) FetchAllModelsAsync() {
+	providersList := r.GetProviders()
+	for _, p := range providersList {
+		r.FetchModelsAsync(p)
+	}
+}
+
+// UpdateProviderModels thread-safely replaces all registered models for a provider.
+func (r *ModelRegistry) UpdateProviderModels(provider ai.Provider, newModels []ai.Model) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	// 1. Filter out all old models for this provider
+	var filtered []ai.Model
+	for _, m := range r.models {
+		if m.Provider != provider {
+			filtered = append(filtered, m)
+		}
+	}
+	r.models = filtered
+
+	// 2. Remove provider mappings from byName
+	for key, m := range r.byName {
+		if m.Provider == provider {
+			delete(r.byName, key)
+		}
+	}
+
+	// 3. Clear from byProv
+	delete(r.byProv, provider)
+
+	// 4. Remove provider models from byAPI mapping
+	for api, list := range r.byAPI {
+		var filteredAPI []ai.Model
+		for _, m := range list {
+			if m.Provider != provider {
+				filteredAPI = append(filteredAPI, m)
+			}
+		}
+		r.byAPI[api] = filteredAPI
+	}
+
+	// 5. Rebuild byID mapping based on priority
+	r.byID = make(map[string]ai.Model)
+	for _, m := range r.models {
+		if existing, exists := r.byID[m.Name]; !exists || ai.ProviderPriority(m.Provider) < ai.ProviderPriority(existing.Provider) {
+			r.byID[m.Name] = m
+		}
+	}
+
+	// 6. Register new models
+	for _, m := range newModels {
+		r.registerModel(m)
+	}
+}
+
+// ResetProviderModels resets a provider's models in the registry to defaults.
+func (r *ModelRegistry) ResetProviderModels(provider ai.Provider) {
+	ai.ResetActiveProviderModels(provider)
+
+	var models []ai.Model
+	for _, def := range ai.DefaultModels() {
+		if def.Provider == provider {
+			models = append(models, ai.Model{
+				API:      def.API,
+				Provider: def.Provider,
+				Name:     def.Name,
+				BaseURL:  def.BaseURL,
+			})
+		}
+	}
+	r.UpdateProviderModels(provider, models)
+}
+

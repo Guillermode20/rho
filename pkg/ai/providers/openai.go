@@ -81,6 +81,15 @@ func streamOpenAICompletions(model ai.Model, ctx ai.Context, opts *OpenAIComplet
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Authorization", "Bearer "+apiKey)
 
+	// Add model-specific headers (e.g. User-Agent for kimi-coding, GitHub Copilot headers)
+	for k, v := range model.Headers {
+		req.Header.Set(k, v)
+	}
+	// Add request-specific headers
+	for k, v := range opts.Headers {
+		req.Header.Set(k, v)
+	}
+
 	if opts.TimeoutMs > 0 {
 		client := &http.Client{Timeout: time.Duration(opts.TimeoutMs) * time.Millisecond}
 		return sendOpenAIStreamingRequest(client, req, callback, model)
@@ -96,6 +105,28 @@ func openAICompatibleAPIKey(provider ai.Provider) string {
 		return GetEnvAPIKey("CROF_API_KEY", "CROFAI_API_KEY")
 	case ai.ProviderDeepSeek:
 		return GetEnvAPIKey("DEEPSEEK_API_KEY")
+	case ai.ProviderHuggingFace:
+		return GetEnvAPIKey("HF_TOKEN")
+	case ai.ProviderKimiCoding:
+		return GetEnvAPIKey("KIMI_API_KEY")
+	case ai.ProviderMinimax:
+		return GetEnvAPIKey("MINIMAX_API_KEY")
+	case ai.ProviderMinimaxCN:
+		return GetEnvAPIKey("MINIMAX_CN_API_KEY")
+	case ai.ProviderMoonshotAI, ai.ProviderMoonshotAICN:
+		return GetEnvAPIKey("MOONSHOT_API_KEY")
+	case ai.ProviderZAI:
+		return GetEnvAPIKey("ZAI_API_KEY")
+	case ai.ProviderOpenCode, ai.ProviderOpenCodeGo:
+		return GetEnvAPIKey("OPENCODE_API_KEY")
+	case ai.ProviderXiaomi:
+		return GetEnvAPIKey("XIAOMI_API_KEY")
+	case ai.ProviderXiaomiTokenPlanCN:
+		return GetEnvAPIKey("XIAOMI_TOKEN_PLAN_CN_API_KEY")
+	case ai.ProviderXiaomiTokenPlanAMS:
+		return GetEnvAPIKey("XIAOMI_TOKEN_PLAN_AMS_API_KEY")
+	case ai.ProviderXiaomiTokenPlanSGP:
+		return GetEnvAPIKey("XIAOMI_TOKEN_PLAN_SGP_API_KEY")
 	default:
 		return GetEnvAPIKey("OPENAI_API_KEY")
 	}
@@ -107,6 +138,18 @@ func openAICompatibleBaseURL(provider ai.Provider) string {
 		return BaseURLFromEnv("CROF_BASE_URL", "https://crof.ai")
 	case ai.ProviderDeepSeek:
 		return BaseURLFromEnv("DEEPSEEK_BASE_URL", "https://api.deepseek.com")
+	case ai.ProviderHuggingFace:
+		return BaseURLFromEnv("HUGGINGFACE_BASE_URL", "https://api-inference.huggingface.co/v1")
+	case ai.ProviderKimiCoding:
+		return BaseURLFromEnv("KIMI_BASE_URL", "https://api.moonshot.cn")
+	case ai.ProviderMinimax, ai.ProviderMinimaxCN:
+		return BaseURLFromEnv("MINIMAX_BASE_URL", "https://api.minimax.chat")
+	case ai.ProviderMoonshotAI, ai.ProviderMoonshotAICN:
+		return BaseURLFromEnv("MOONSHOT_BASE_URL", "https://api.moonshot.cn")
+	case ai.ProviderZAI:
+		return BaseURLFromEnv("ZAI_BASE_URL", "https://api.z.ai")
+	case ai.ProviderOpenCode, ai.ProviderOpenCodeGo:
+		return BaseURLFromEnv("OPENCODE_BASE_URL", "https://api.opencode.com")
 	default:
 		return BaseURLFromEnv("OPENAI_BASE_URL", openaiDefaultBaseURL)
 	}

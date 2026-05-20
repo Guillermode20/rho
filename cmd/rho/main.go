@@ -9,6 +9,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 
 	"github.com/earendil-works/rho/pkg/agent"
 	"github.com/earendil-works/rho/pkg/agent/auth"
@@ -92,8 +93,8 @@ func main() {
 	}
 
 	// Check if we have a usable model with auth configured
-	hasAuth := *apiKey != "" || (model != ai.Model{} && providerHasAuth(model.Provider, authStorage, oauthStore))
-	if !hasAuth && model != (ai.Model{}) {
+	hasAuth := *apiKey != "" || (model.Name != "" && providerHasAuth(model.Provider, authStorage, oauthStore))
+	if !hasAuth && model.Name != "" {
 		// Model was auto-selected but no auth is configured - reset to let interactive mode handle it
 		if *mode == "interactive" {
 			model = ai.Model{}
@@ -101,7 +102,7 @@ func main() {
 	}
 
 	if *listModels {
-		printModelList()
+		printModelList(authStorage)
 		return
 	}
 
@@ -311,24 +312,11 @@ func defaultOAuthPath() string {
 }
 
 func resolveAPIKey(model ai.Model, authStorage *auth.AuthStorage) string {
-	switch model.Provider {
-	case ai.ProviderAnthropic:
-		return firstConfiguredAPIKey(authStorage, string(model.Provider), "ANTHROPIC_API_KEY", "CLAUDE_API_KEY")
-	case ai.ProviderOpenAI, ai.ProviderOpenAICodex:
-		return firstConfiguredAPIKey(authStorage, string(model.Provider), "OPENAI_API_KEY")
-	case ai.ProviderGoogle:
-		return firstConfiguredAPIKey(authStorage, string(model.Provider), "GOOGLE_API_KEY", "GEMINI_API_KEY")
-	case ai.ProviderDeepSeek:
-		return firstConfiguredAPIKey(authStorage, string(model.Provider), "DEEPSEEK_API_KEY")
-	case ai.ProviderCrof:
-		return firstConfiguredAPIKey(authStorage, string(model.Provider), "CROF_API_KEY", "CROFAI_API_KEY")
-	case ai.ProviderMistral:
-		return firstConfiguredAPIKey(authStorage, string(model.Provider), "MISTRAL_API_KEY")
-	case ai.ProviderGroq:
-		return firstConfiguredAPIKey(authStorage, string(model.Provider), "GROQ_API_KEY")
-	default:
-		return providers.GetEnvAPIKey("OPENAI_API_KEY", "ANTHROPIC_API_KEY")
+	keys := ai.ProviderEnvKeys(model.Provider)
+	if len(keys) > 0 {
+		return firstConfiguredAPIKey(authStorage, string(model.Provider), keys...)
 	}
+	return providers.GetEnvAPIKey("OPENAI_API_KEY", "ANTHROPIC_API_KEY")
 }
 
 func resolveAuthToken(model ai.Model, authStorage *auth.AuthStorage, oauthStore *auth.OAuthStore) string {
@@ -375,7 +363,48 @@ func firstConfiguredAPIKey(authStorage *auth.AuthStorage, provider string, envNa
 	return providers.GetEnvAPIKey(envNames...)
 }
 
-func printModelList() {
+func resolveAPIKeyForProvider(provider ai.Provider, authStorage *auth.AuthStorage) string {
+	// 1. Try env keys
+	for _, envKey := range ai.ProviderEnvKeys(provider) {
+		if val := os.Getenv(envKey); val != "" {
+			return val
+		}
+	}
+	// 2. Try authStorage
+	if authStorage != nil {
+		if val, ok := authStorage.GetAPIKey(string(provider)); ok && strings.TrimSpace(val) != "" {
+			return val
+		}
+	}
+	return ""
+}
+
+func printModelList(authStorage *auth.AuthStorage) {
+	// Fetch models for all providers that have configured auth, in parallel
+	uniqueProviders := make(map[ai.Provider]bool)
+	for _, def := range ai.DefaultModels() {
+		uniqueProviders[def.Provider] = true
+	}
+
+	var wg sync.WaitGroup
+	for provider := range uniqueProviders {
+		key := resolveAPIKeyForProvider(provider, authStorage)
+		if key == "" {
+			continue
+		}
+		wg.Add(1)
+		provider := provider // capture
+		go func() {
+			defer wg.Done()
+			// FetchModelsForProvider has its own 10s internal timeout
+			defs, err := providers.FetchModelsForProvider(provider, key)
+			if err == nil && len(defs) > 0 {
+				ai.UpdateActiveProviderModels(provider, defs)
+			}
+		}()
+	}
+	wg.Wait()
+
 	fmt.Println("Available models:")
 	fmt.Println()
 	for _, def := range ai.DefaultModels() {
@@ -384,8 +413,8 @@ func printModelList() {
 		if def.Reasoning {
 			reasoning = " [reasoning]"
 		}
-		// Check if this provider has any auth configured via env vars
-		available := ai.ProviderHasEnvKey(def.Provider)
+		// Check if this provider has any auth configured
+		available := resolveAPIKeyForProvider(def.Provider, authStorage) != ""
 		indicator := " "
 		if !available {
 			indicator = "⚠"
@@ -393,7 +422,7 @@ func printModelList() {
 		fmt.Printf("  %s %s/%s  (%s)%s\n", indicator, providerName, def.Name, string(def.API), reasoning)
 	}
 	fmt.Println()
-	fmt.Println("  ⚠ = no API key found in environment variables")
+	fmt.Println("  ⚠ = no API key found in environment variables or auth file")
 	fmt.Println("  Use /login <provider> to configure an API key, or set the appropriate env var.")
 }
 

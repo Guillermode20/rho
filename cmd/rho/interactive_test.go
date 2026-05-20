@@ -148,6 +148,8 @@ func TestChatModelSlashAutocompleteAppliesSelection(t *testing.T) {
 
 func TestInteractiveAutocompleteIncludesCommandsModelsAndProviders(t *testing.T) {
 	store := auth.NewAuthStorage(filepath.Join(t.TempDir(), "keys.json"))
+	_ = store.SetAPIKey("anthropic", "mock-anthropic-key")
+	_ = store.SetAPIKey("openai", "mock-openai-key")
 	im := NewInteractiveMode(&RuntimeConfig{
 		Model:       ai.Model{Provider: ai.ProviderAnthropic, Name: "claude-sonnet-4-20250514"},
 		Provider:    ai.ProviderAnthropic,
@@ -599,10 +601,13 @@ func TestInteractiveSettingsCyclesThinkingLevel(t *testing.T) {
 }
 
 func TestInteractiveAppKeybindingOpensModelSelector(t *testing.T) {
+	store := auth.NewAuthStorage(filepath.Join(t.TempDir(), "keys.json"))
+	_ = store.SetAPIKey("anthropic", "mock-anthropic-key")
 	im := NewInteractiveMode(&RuntimeConfig{
-		Model:    ai.Model{Provider: ai.ProviderAnthropic, Name: "claude-sonnet-4-20250514"},
-		Provider: ai.ProviderAnthropic,
-		CWD:      t.TempDir(),
+		Model:       ai.Model{Provider: ai.ProviderAnthropic, Name: "claude-sonnet-4-20250514"},
+		Provider:    ai.ProviderAnthropic,
+		CWD:         t.TempDir(),
+		AuthStorage: store,
 	})
 
 	im.ui.Update(tea.KeyMsg{Type: tea.KeyCtrlL})
@@ -1027,3 +1032,75 @@ func TestSelectorScrollingKeys(t *testing.T) {
 
 	t.Logf("All scroll tests passed! selectorIdx=%d", model.selectorIdx)
 }
+
+func TestChatModelMetadataFooter(t *testing.T) {
+	model := newChatModel("rho")
+	model.width = 80
+	model.height = 20
+
+	// Set some metadata
+	model.SetModel("claude-3-5-sonnet", "anthropic")
+	model.SetGitBranch("main")
+	model.SetTokenCount(150, 200000)
+	model.SetTotalCost(0.0045)
+
+	view := tui.StripANSI(model.View())
+	if !strings.Contains(view, "main") {
+		t.Fatalf("expected view to contain git branch 'main', got:\n%s", view)
+	}
+	if !strings.Contains(view, "anthropic/claude-3-5-sonnet") {
+		t.Fatalf("expected view to contain model 'anthropic/claude-3-5-sonnet', got:\n%s", view)
+	}
+	if !strings.Contains(view, "150 tok / 200000 ctx (<1%)") {
+		t.Fatalf("expected view to contain token usage, got:\n%s", view)
+	}
+	if !strings.Contains(view, "$0.0045") {
+		t.Fatalf("expected view to contain cost '$0.0045', got:\n%s", view)
+	}
+
+	// Add a message with usage info to trigger recalculation
+	msg := agent.AgentMessage{
+		Role:  ai.RoleAssistant,
+		Model: "claude-3-5-sonnet",
+		Usage: &ai.Usage{
+			Input:       1000,
+			Output:      500,
+			TotalTokens: 1500,
+			Cost: ai.Cost{
+				Total: 0.0075,
+			},
+		},
+	}
+	model.AddMessage(msg)
+
+	// Verify stats recalculated
+	if model.tokenCount != 1500 {
+		t.Fatalf("expected tokenCount to be 1500, got %d", model.tokenCount)
+	}
+	if model.totalCost != 0.0075 {
+		t.Fatalf("expected totalCost to be 0.0075, got %f", model.totalCost)
+	}
+
+	// Add a second message to verify tokenCount is last turn's tokens, but cost is cumulative
+	msg2 := agent.AgentMessage{
+		Role:  ai.RoleAssistant,
+		Model: "claude-3-5-sonnet",
+		Usage: &ai.Usage{
+			Input:       1200,
+			Output:      600,
+			TotalTokens: 1800,
+			Cost: ai.Cost{
+				Total: 0.0090,
+			},
+		},
+	}
+	model.AddMessage(msg2)
+
+	if model.tokenCount != 1800 {
+		t.Fatalf("expected tokenCount to be last message tokens (1800), got %d", model.tokenCount)
+	}
+	if model.totalCost != 0.0165 {
+		t.Fatalf("expected totalCost to be cumulative (0.0165), got %f", model.totalCost)
+	}
+}
+

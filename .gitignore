@@ -34,3 +34,5 @@
 # Extension plugins built locally
 *.so
 examples/extensions/*.so
+
+pi

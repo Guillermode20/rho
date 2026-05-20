@@ -45,6 +45,19 @@ const (
 	ProviderTogether             Provider = "together"
 	ProviderCloudflareAIGateway  Provider = "cloudflare-ai-gateway"
 	ProviderCloudflareWorkersAI  Provider = "cloudflare-workers-ai"
+	ProviderHuggingFace          Provider = "huggingface"
+	ProviderKimiCoding           Provider = "kimi-coding"
+	ProviderMinimax              Provider = "minimax"
+	ProviderMinimaxCN            Provider = "minimax-cn"
+	ProviderMoonshotAI           Provider = "moonshotai"
+	ProviderMoonshotAICN         Provider = "moonshotai-cn"
+	ProviderZAI                  Provider = "zai"
+	ProviderOpenCode             Provider = "opencode"
+	ProviderOpenCodeGo           Provider = "opencode-go"
+	ProviderXiaomi               Provider = "xiaomi"
+	ProviderXiaomiTokenPlanCN    Provider = "xiaomi-token-plan-cn"
+	ProviderXiaomiTokenPlanAMS   Provider = "xiaomi-token-plan-ams"
+	ProviderXiaomiTokenPlanSGP   Provider = "xiaomi-token-plan-sgp"
 )
 
 // ThinkingLevel represents the reasoning effort.
@@ -214,10 +227,11 @@ type Context struct {
 
 // Model represents a registered AI model.
 type Model struct {
-	API      API      `json:"api"`
-	Provider Provider `json:"provider"`
-	Name     string   `json:"name"`
-	BaseURL  string   `json:"baseUrl,omitempty"`
+	API      API               `json:"api"`
+	Provider Provider          `json:"provider"`
+	Name     string            `json:"name"`
+	BaseURL  string            `json:"baseUrl,omitempty"`
+	Headers  map[string]string `json:"headers,omitempty"`
 }
 
 // StreamOptions configures streaming model calls.

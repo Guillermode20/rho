@@ -1,6 +1,9 @@
 package ai
 
-import "os"
+import (
+	"os"
+	"sync"
+)
 
 // CostPerMillion is the cost per 1M tokens for a model.
 type CostPerMillion struct {
@@ -12,109 +15,112 @@ type CostPerMillion struct {
 
 // ModelDefinition describes a model's capabilities.
 type ModelDefinition struct {
-	API            API            `json:"api"`
-	Provider       Provider       `json:"provider"`
-	Name           string         `json:"name"`
-	BaseURL        string         `json:"baseUrl,omitempty"`
-	ContextWindow  int            `json:"contextWindow"`
-	MaxTokens      int            `json:"maxTokens"`
-	Reasoning      bool           `json:"reasoning"`
-	Input          []string       `json:"input"` // "text", "image", "code" etc.
-	Cost           CostPerMillion `json:"cost"`
-	ThinkingLevels []string       `json:"thinkingLevels,omitempty"`
-	Description    string         `json:"description,omitempty"`
+	API            API                `json:"api"`
+	Provider       Provider           `json:"provider"`
+	Name           string             `json:"name"`
+	DisplayName    string             `json:"displayName,omitempty"`
+	BaseURL        string             `json:"baseUrl,omitempty"`
+	ContextWindow  int                `json:"contextWindow"`
+	MaxTokens      int                `json:"maxTokens"`
+	Reasoning      bool               `json:"reasoning"`
+	Input          []string           `json:"input"` // "text", "image", "code" etc.
+	Cost           CostPerMillion     `json:"cost"`
+	ThinkingLevels []string           `json:"thinkingLevels,omitempty"`
+	ThinkingMap    map[string]*string `json:"thinkingMap,omitempty"`
+	Headers        map[string]string  `json:"headers,omitempty"`
+	Description    string             `json:"description,omitempty"`
 }
 
-// DefaultModels returns the built-in model definitions.
+// ImageModelDefinition describes an image generation model.
+type ImageModelDefinition struct {
+	API         API            `json:"api"`
+	Provider    Provider       `json:"provider"`
+	Name        string         `json:"name"`
+	DisplayName string         `json:"displayName,omitempty"`
+	BaseURL     string         `json:"baseUrl,omitempty"`
+	Input       []string       `json:"input"`
+	Output      []string       `json:"output"`
+	Cost        CostPerMillion `json:"cost"`
+}
+
+func pointerToString(s string) *string {
+	return &s
+}
+
+// CustomCrofModels are CrofAI (via openai-compatible API) model definitions maintained separately
+// from the generated models to avoid duplication across initModels and ResetActiveProviderModels.
+var CustomCrofModels = []ModelDefinition{
+	{API: APIOpenAICompletions, Provider: ProviderCrof, Name: "glm-5.1", BaseURL: "https://crof.ai", ContextWindow: 202000, MaxTokens: 32768, Reasoning: true, Input: []string{"text", "image"}, Cost: CostPerMillion{Input: 0.45, Output: 2.10}},
+	{API: APIOpenAICompletions, Provider: ProviderCrof, Name: "glm-5.1-precision", BaseURL: "https://crof.ai", ContextWindow: 202000, MaxTokens: 32768, Reasoning: true, Input: []string{"text", "image"}, Cost: CostPerMillion{Input: 0.80, Output: 2.90}},
+	{API: APIOpenAICompletions, Provider: ProviderCrof, Name: "kimi-k2.6", BaseURL: "https://crof.ai", ContextWindow: 262000, MaxTokens: 32768, Reasoning: true, Input: []string{"text", "image"}, Cost: CostPerMillion{Input: 0.50, Output: 1.99}},
+	{API: APIOpenAICompletions, Provider: ProviderCrof, Name: "kimi-k2.6-precision", BaseURL: "https://crof.ai", ContextWindow: 262000, MaxTokens: 32768, Reasoning: true, Input: []string{"text", "image"}, Cost: CostPerMillion{Input: 0.50, Output: 1.99}},
+	{API: APIOpenAICompletions, Provider: ProviderCrof, Name: "deepseek-v4-pro", BaseURL: "https://crof.ai", ContextWindow: 163000, MaxTokens: 32768, Reasoning: true, Input: []string{"text"}, Cost: CostPerMillion{Input: 1.00, Output: 2.15}},
+	{API: APIOpenAICompletions, Provider: ProviderCrof, Name: "deepseek-v4-pro-precision", BaseURL: "https://crof.ai", ContextWindow: 163000, MaxTokens: 32768, Reasoning: true, Input: []string{"text"}, Cost: CostPerMillion{Input: 1.20, Output: 2.50}},
+	{API: APIOpenAICompletions, Provider: ProviderCrof, Name: "deepseek-v4-flash", BaseURL: "https://crof.ai", ContextWindow: 163000, MaxTokens: 32768, Reasoning: false, Input: []string{"text"}, Cost: CostPerMillion{Input: 0.14, Output: 0.28}},
+	{API: APIOpenAICompletions, Provider: ProviderCrof, Name: "deepseek-v3.2", BaseURL: "https://crof.ai", ContextWindow: 163000, MaxTokens: 32768, Reasoning: true, Input: []string{"text"}, Cost: CostPerMillion{Input: 0.28, Output: 0.38}},
+	{API: APIOpenAICompletions, Provider: ProviderCrof, Name: "mimo-v2.5-pro", BaseURL: "https://crof.ai", ContextWindow: 262000, MaxTokens: 32768, Reasoning: false, Input: []string{"text", "image"}, Cost: CostPerMillion{}},
+	{API: APIOpenAICompletions, Provider: ProviderCrof, Name: "mimo-v2.5-pro-precision", BaseURL: "https://crof.ai", ContextWindow: 262000, MaxTokens: 32768, Reasoning: true, Input: []string{"text", "image"}, Cost: CostPerMillion{}},
+	{API: APIOpenAICompletions, Provider: ProviderCrof, Name: "qwen3.5-397b-a17b", BaseURL: "https://crof.ai", ContextWindow: 262000, MaxTokens: 32768, Reasoning: true, Input: []string{"text", "image"}, Cost: CostPerMillion{}},
+	{API: APIOpenAICompletions, Provider: ProviderCrof, Name: "minimax-m2.5", BaseURL: "https://crof.ai", ContextWindow: 262000, MaxTokens: 32768, Reasoning: true, Input: []string{"text"}, Cost: CostPerMillion{}},
+	{API: APIOpenAICompletions, Provider: ProviderCrof, Name: "glm-5", BaseURL: "https://crof.ai", ContextWindow: 202000, MaxTokens: 32768, Reasoning: true, Input: []string{"text", "image"}, Cost: CostPerMillion{}},
+	{API: APIOpenAICompletions, Provider: ProviderCrof, Name: "glm-4.7", BaseURL: "https://crof.ai", ContextWindow: 202000, MaxTokens: 32768, Reasoning: false, Input: []string{"text", "image"}, Cost: CostPerMillion{}},
+	{API: APIOpenAICompletions, Provider: ProviderCrof, Name: "glm-4.7-flash", BaseURL: "https://crof.ai", ContextWindow: 202000, MaxTokens: 32768, Reasoning: true, Input: []string{"text", "image"}, Cost: CostPerMillion{}},
+	{API: APIOpenAICompletions, Provider: ProviderCrof, Name: "gemma-4-31b-it", BaseURL: "https://crof.ai", ContextWindow: 128000, MaxTokens: 32768, Reasoning: false, Input: []string{"text"}, Cost: CostPerMillion{}},
+	{API: APIOpenAICompletions, Provider: ProviderCrof, Name: "qwen3.6-27b", BaseURL: "https://crof.ai", ContextWindow: 128000, MaxTokens: 32768, Reasoning: false, Input: []string{"text"}, Cost: CostPerMillion{}},
+	{API: APIOpenAICompletions, Provider: ProviderCrof, Name: "qwen3.5-9b", BaseURL: "https://crof.ai", ContextWindow: 128000, MaxTokens: 32768, Reasoning: false, Input: []string{"text"}, Cost: CostPerMillion{}},
+	{API: APIOpenAICompletions, Provider: ProviderCrof, Name: "kimi-k2.5", BaseURL: "https://crof.ai", ContextWindow: 262000, MaxTokens: 32768, Reasoning: true, Input: []string{"text", "image"}, Cost: CostPerMillion{}},
+	{API: APIOpenAICompletions, Provider: ProviderCrof, Name: "kimi-k2.5-lightning", BaseURL: "https://crof.ai", ContextWindow: 262000, MaxTokens: 32768, Reasoning: true, Input: []string{"text", "image"}, Cost: CostPerMillion{}},
+}
+
+var (
+	activeModels   []ModelDefinition
+	activeModelsMu sync.RWMutex
+	onceInitModels sync.Once
+)
+
+func initModels() {
+	onceInitModels.Do(func() {
+		models := GeneratedModels()
+		activeModels = append(models, CustomCrofModels...)
+	})
+}
+
+// DefaultModels returns the built-in and dynamically fetched model definitions.
 func DefaultModels() []ModelDefinition {
-	return []ModelDefinition{
-		// ── Anthropic ──
-		{API: APIAnthropicMessages, Provider: ProviderAnthropic, Name: "claude-sonnet-4-20250514", ContextWindow: 200000, MaxTokens: 8192, Reasoning: true, Input: []string{"text", "image"}, Cost: CostPerMillion{Input: 3, Output: 15, CacheWrite: 3.75, CacheRead: 0.30}},
-		{API: APIAnthropicMessages, Provider: ProviderAnthropic, Name: "claude-3-5-sonnet-20241022", ContextWindow: 200000, MaxTokens: 8192, Reasoning: false, Input: []string{"text", "image"}, Cost: CostPerMillion{Input: 3, Output: 15, CacheWrite: 3.75, CacheRead: 0.30}},
-		{API: APIAnthropicMessages, Provider: ProviderAnthropic, Name: "claude-3-opus-20240229", ContextWindow: 200000, MaxTokens: 4096, Reasoning: false, Input: []string{"text", "image"}, Cost: CostPerMillion{Input: 15, Output: 75, CacheWrite: 18.75, CacheRead: 1.50}},
-		{API: APIAnthropicMessages, Provider: ProviderAnthropic, Name: "claude-3-haiku-20240307", ContextWindow: 200000, MaxTokens: 4096, Reasoning: false, Input: []string{"text", "image"}, Cost: CostPerMillion{Input: 0.25, Output: 1.25, CacheWrite: 0.30, CacheRead: 0.03}},
-
-		// ── OpenAI ──
-		{API: APIOpenAICompletions, Provider: ProviderOpenAI, Name: "gpt-4o", ContextWindow: 128000, MaxTokens: 16384, Reasoning: false, Input: []string{"text", "image"}, Cost: CostPerMillion{Input: 2.50, Output: 10, CacheRead: 1.25}},
-		{API: APIOpenAICompletions, Provider: ProviderOpenAI, Name: "gpt-4o-mini", ContextWindow: 128000, MaxTokens: 16384, Reasoning: false, Input: []string{"text", "image"}, Cost: CostPerMillion{Input: 0.15, Output: 0.60, CacheRead: 0.075}},
-		{API: APIOpenAICompletions, Provider: ProviderOpenAI, Name: "o3-mini", ContextWindow: 200000, MaxTokens: 100000, Reasoning: true, Input: []string{"text", "image"}, Cost: CostPerMillion{Input: 1.10, Output: 4.40, CacheRead: 0.55}},
-
-		// ── Google ──
-		{API: APIGoogleGenerativeAI, Provider: ProviderGoogle, Name: "gemini-2.5-pro-exp-03-25", ContextWindow: 1000000, MaxTokens: 8192, Reasoning: true, Input: []string{"text", "image", "audio", "video"}, Cost: CostPerMillion{Input: 1.25, Output: 10}},
-		{API: APIGoogleGenerativeAI, Provider: ProviderGoogle, Name: "gemini-2.0-flash", ContextWindow: 1000000, MaxTokens: 8192, Reasoning: false, Input: []string{"text", "image", "audio", "video"}, Cost: CostPerMillion{Input: 0.10, Output: 0.40}},
-
-		// ── Google Vertex AI ──
-		{API: APIGoogleVertex, Provider: ProviderGoogleVertex, Name: "gemini-2.5-pro-exp-03-25", ContextWindow: 1000000, MaxTokens: 8192, Reasoning: true, Input: []string{"text", "image", "audio", "video"}, Cost: CostPerMillion{Input: 1.25, Output: 10}},
-		{API: APIGoogleVertex, Provider: ProviderGoogleVertex, Name: "gemini-2.0-flash", ContextWindow: 1000000, MaxTokens: 8192, Reasoning: false, Input: []string{"text", "image", "audio", "video"}, Cost: CostPerMillion{Input: 0.10, Output: 0.40}},
-
-		// ── DeepSeek (OpenAI-compatible) ──
-		{API: APIOpenAICompletions, Provider: ProviderDeepSeek, Name: "deepseek-chat", BaseURL: "https://api.deepseek.com", ContextWindow: 64000, MaxTokens: 8192, Reasoning: false, Input: []string{"text"}, Cost: CostPerMillion{Input: 0.27, Output: 1.10}},
-
-		// ── CrofAI (OpenAI-compatible) ──
-		{API: APIOpenAICompletions, Provider: ProviderCrof, Name: "glm-5.1", BaseURL: "https://crof.ai", ContextWindow: 202000, MaxTokens: 32768, Reasoning: true, Input: []string{"text", "image"}, Cost: CostPerMillion{Input: 0.45, Output: 2.10}},
-		{API: APIOpenAICompletions, Provider: ProviderCrof, Name: "glm-5.1-precision", BaseURL: "https://crof.ai", ContextWindow: 202000, MaxTokens: 32768, Reasoning: true, Input: []string{"text", "image"}, Cost: CostPerMillion{Input: 0.80, Output: 2.90}},
-		{API: APIOpenAICompletions, Provider: ProviderCrof, Name: "kimi-k2.6", BaseURL: "https://crof.ai", ContextWindow: 262000, MaxTokens: 32768, Reasoning: true, Input: []string{"text", "image"}, Cost: CostPerMillion{Input: 0.50, Output: 1.99}},
-		{API: APIOpenAICompletions, Provider: ProviderCrof, Name: "kimi-k2.6-precision", BaseURL: "https://crof.ai", ContextWindow: 262000, MaxTokens: 32768, Reasoning: true, Input: []string{"text", "image"}, Cost: CostPerMillion{Input: 0.50, Output: 1.99}},
-		{API: APIOpenAICompletions, Provider: ProviderCrof, Name: "deepseek-v4-pro", BaseURL: "https://crof.ai", ContextWindow: 163000, MaxTokens: 32768, Reasoning: true, Input: []string{"text"}, Cost: CostPerMillion{Input: 1.00, Output: 2.15}},
-		{API: APIOpenAICompletions, Provider: ProviderCrof, Name: "deepseek-v3.2", BaseURL: "https://crof.ai", ContextWindow: 163000, MaxTokens: 32768, Reasoning: true, Input: []string{"text"}, Cost: CostPerMillion{Input: 0.28, Output: 0.38}},
-		{API: APIOpenAICompletions, Provider: ProviderCrof, Name: "qwen3.5-397b-a17b", BaseURL: "https://crof.ai", ContextWindow: 262000, MaxTokens: 32768, Reasoning: true, Input: []string{"text", "image"}, Cost: CostPerMillion{}},
-		{API: APIOpenAICompletions, Provider: ProviderCrof, Name: "minimax-m2.5", BaseURL: "https://crof.ai", ContextWindow: 262000, MaxTokens: 32768, Reasoning: true, Input: []string{"text"}, Cost: CostPerMillion{}},
-		{API: APIOpenAICompletions, Provider: ProviderCrof, Name: "glm-4.7-flash", BaseURL: "https://crof.ai", ContextWindow: 202000, MaxTokens: 32768, Reasoning: true, Input: []string{"text", "image"}, Cost: CostPerMillion{}},
-
-		// ── Mistral ──
-		{API: APIMistralConversations, Provider: ProviderMistral, Name: "mistral-large-2411", ContextWindow: 128000, MaxTokens: 8192, Reasoning: false, Input: []string{"text", "image"}, Cost: CostPerMillion{Input: 2, Output: 6}},
-
-		// ── Amazon Bedrock ──
-		{API: APIBedrockConverseStream, Provider: ProviderAmazonBedrock, Name: "claude-sonnet-4-20250514", ContextWindow: 200000, MaxTokens: 8192, Reasoning: true, Input: []string{"text", "image"}, Cost: CostPerMillion{Input: 3, Output: 15}},
-		{API: APIBedrockConverseStream, Provider: ProviderAmazonBedrock, Name: "claude-3-haiku-20240307", ContextWindow: 200000, MaxTokens: 4096, Reasoning: false, Input: []string{"text", "image"}, Cost: CostPerMillion{Input: 0.25, Output: 1.25}},
-
-		// ── Azure OpenAI ──
-		{API: APIAzureOpenAIResponses, Provider: ProviderAzureOpenAIResponses, Name: "gpt-4o", ContextWindow: 128000, MaxTokens: 16384, Reasoning: false, Input: []string{"text", "image"}, Cost: CostPerMillion{Input: 2.50, Output: 10}},
-
-		// ── xAI (OpenAI-compatible) ──
-		{API: APIOpenAICompletions, Provider: ProviderXAI, Name: "grok-2", BaseURL: "https://api.x.ai/v1", ContextWindow: 131072, MaxTokens: 8192, Reasoning: false, Input: []string{"text"}, Cost: CostPerMillion{Input: 2, Output: 10}},
-
-		// ── Groq (OpenAI-compatible) ──
-		{API: APIOpenAICompletions, Provider: ProviderGroq, Name: "llama-3.3-70b-versatile", BaseURL: "https://api.groq.com/openai/v1", ContextWindow: 131072, MaxTokens: 8192, Reasoning: false, Input: []string{"text"}, Cost: CostPerMillion{Input: 0.59, Output: 0.79}},
-
-		// ── Cerebras (OpenAI-compatible) ──
-		{API: APIOpenAICompletions, Provider: ProviderCerebras, Name: "llama-3.1-8b", BaseURL: "https://api.cerebras.ai/v1", ContextWindow: 8192, MaxTokens: 4096, Reasoning: false, Input: []string{"text"}, Cost: CostPerMillion{Input: 0.10, Output: 0.10}},
-
-		// ── OpenRouter (OpenAI-compatible) ──
-		{API: APIOpenAICompletions, Provider: ProviderOpenRouter, Name: "auto", BaseURL: "https://openrouter.ai/api/v1", ContextWindow: 128000, MaxTokens: 8192, Reasoning: false, Input: []string{"text"}, Cost: CostPerMillion{Input: 0, Output: 0}},
-
-		// ── Fireworks (OpenAI-compatible) ──
-		{API: APIOpenAICompletions, Provider: ProviderFireworks, Name: "llama-v3p3-70b-instruct", BaseURL: "https://api.fireworks.ai/inference/v1", ContextWindow: 131072, MaxTokens: 8192, Reasoning: false, Input: []string{"text"}, Cost: CostPerMillion{Input: 0.90, Output: 0.90}},
-
-		// ── Together (OpenAI-compatible) ──
-		{API: APIOpenAICompletions, Provider: ProviderTogether, Name: "llama-3.3-70b-instruct-turbo", BaseURL: "https://api.together.xyz/v1", ContextWindow: 131072, MaxTokens: 8192, Reasoning: false, Input: []string{"text"}, Cost: CostPerMillion{Input: 0.88, Output: 0.88}},
-
-		// ── GitHub Copilot (OpenAI-compatible) ──
-		{API: APIOpenAICompletions, Provider: ProviderGitHubCopilot, Name: "gpt-4o", ContextWindow: 128000, MaxTokens: 16384, Reasoning: false, Input: []string{"text", "image"}, Cost: CostPerMillion{Input: 0, Output: 0}},
-
-		// ── Vercel AI Gateway (OpenAI-compatible) ──
-		{API: APIOpenAICompletions, Provider: ProviderVercelAIGateway, Name: "auto", BaseURL: "https://gateway.ai.vercel.ai/v1", ContextWindow: 128000, MaxTokens: 8192, Reasoning: false, Input: []string{"text"}, Cost: CostPerMillion{Input: 0, Output: 0}},
-
-		// ── OpenAI Codex (for Copilot/ChatGPT) ──
-		{API: APIOpenAICodexResponses, Provider: ProviderOpenAICodex, Name: "gpt-4o", ContextWindow: 128000, MaxTokens: 16384, Reasoning: false, Input: []string{"text", "image"}, Cost: CostPerMillion{Input: 0, Output: 0}},
-
-		// ── Cloudflare AI Gateway ──
-		{API: APIOpenAICompletions, Provider: ProviderCloudflareAIGateway, Name: "auto", BaseURL: "https://gateway.ai.cloudflare.com/v1", ContextWindow: 128000, MaxTokens: 8192, Reasoning: false, Input: []string{"text"}, Cost: CostPerMillion{Input: 0, Output: 0}},
-
-		// ── Cloudflare Workers AI ──
-		{API: APIOpenAICompletions, Provider: ProviderCloudflareWorkersAI, Name: "auto", BaseURL: "https://api.cloudflare.com/client/v4/accounts", ContextWindow: 128000, MaxTokens: 8192, Reasoning: false, Input: []string{"text"}, Cost: CostPerMillion{Input: 0, Output: 0}},
-	}
+	initModels()
+	activeModelsMu.RLock()
+	defer activeModelsMu.RUnlock()
+	res := make([]ModelDefinition, len(activeModels))
+	copy(res, activeModels)
+	return res
 }
 
-// providerEnvKeys maps provider names to their expected environment variable names.
-func providerEnvKeys(provider Provider) []string {
+// UpdateActiveProviderModels thread-safely updates models for a provider in the active models list.
+func UpdateActiveProviderModels(provider Provider, defs []ModelDefinition) {
+	initModels()
+	activeModelsMu.Lock()
+	defer activeModelsMu.Unlock()
+
+	var filtered []ModelDefinition
+	for _, m := range activeModels {
+		if m.Provider != provider {
+			filtered = append(filtered, m)
+		}
+	}
+	activeModels = append(filtered, defs...)
+}
+
+// ProviderEnvKeys maps provider names to their expected environment variable names.
+func ProviderEnvKeys(provider Provider) []string {
 	switch provider {
 	case ProviderAnthropic:
-		return []string{"ANTHROPIC_API_KEY", "CLAUDE_API_KEY"}
+		return []string{"ANTHROPIC_OAUTH_TOKEN", "ANTHROPIC_API_KEY", "CLAUDE_API_KEY"}
 	case ProviderOpenAI:
 		return []string{"OPENAI_API_KEY"}
 	case ProviderGoogle:
-		return []string{"GOOGLE_API_KEY", "GEMINI_API_KEY"}
+		return []string{"GEMINI_API_KEY", "GOOGLE_API_KEY"}
+	case ProviderGoogleVertex:
+		return []string{"GOOGLE_CLOUD_API_KEY", "GOOGLE_APPLICATION_CREDENTIALS"}
 	case ProviderDeepSeek:
 		return []string{"DEEPSEEK_API_KEY"}
 	case ProviderCrof:
@@ -143,14 +149,69 @@ func providerEnvKeys(provider Provider) []string {
 		return []string{"AI_GATEWAY_API_KEY"}
 	case ProviderCloudflareAIGateway, ProviderCloudflareWorkersAI:
 		return []string{"CLOUDFLARE_API_KEY"}
+	case ProviderHuggingFace:
+		return []string{"HF_TOKEN"}
+	case ProviderKimiCoding:
+		return []string{"KIMI_API_KEY"}
+	case ProviderMinimax:
+		return []string{"MINIMAX_API_KEY"}
+	case ProviderMinimaxCN:
+		return []string{"MINIMAX_CN_API_KEY"}
+	case ProviderMoonshotAI, ProviderMoonshotAICN:
+		return []string{"MOONSHOT_API_KEY"}
+	case ProviderZAI:
+		return []string{"ZAI_API_KEY"}
+	case ProviderOpenCode, ProviderOpenCodeGo:
+		return []string{"OPENCODE_API_KEY"}
+	case ProviderXiaomi:
+		return []string{"XIAOMI_API_KEY"}
+	case ProviderXiaomiTokenPlanCN:
+		return []string{"XIAOMI_TOKEN_PLAN_CN_API_KEY"}
+	case ProviderXiaomiTokenPlanAMS:
+		return []string{"XIAOMI_TOKEN_PLAN_AMS_API_KEY"}
+	case ProviderXiaomiTokenPlanSGP:
+		return []string{"XIAOMI_TOKEN_PLAN_SGP_API_KEY"}
 	default:
 		return nil
 	}
 }
 
+// ProviderPriority returns a priority number for a provider (lower = preferred).
+// Used when multiple providers define the same model name.
+func ProviderPriority(p Provider) int {
+	switch p {
+	case ProviderAnthropic:
+		return 1
+	case ProviderOpenAI:
+		return 2
+	case ProviderGoogle:
+		return 3
+	case ProviderDeepSeek:
+		return 4
+	case ProviderMistral:
+		return 5
+	case ProviderGroq:
+		return 6
+	case ProviderCerebras:
+		return 7
+	case ProviderXAI:
+		return 8
+	case ProviderHuggingFace:
+		return 9
+	case ProviderOpenRouter:
+		return 20
+	case ProviderAzureOpenAIResponses:
+		return 30
+	case ProviderAmazonBedrock:
+		return 40
+	default:
+		return 100
+	}
+}
+
 // ProviderHasEnvKey checks if any of the known environment variables for a provider are set.
 func ProviderHasEnvKey(provider Provider) bool {
-	for _, key := range providerEnvKeys(provider) {
+	for _, key := range ProviderEnvKeys(provider) {
 		if v := os.Getenv(key); v != "" {
 			return true
 		}
@@ -193,6 +254,8 @@ func init() {
 			API:      def.API,
 			Provider: def.Provider,
 			Name:     def.Name,
+			BaseURL:  def.BaseURL,
+			Headers:  def.Headers,
 		}
 		// Auto-register in the default registry
 		DefaultModelRegistry.RegisterModel(m)
@@ -201,3 +264,28 @@ func init() {
 
 // DefaultModelRegistry is the package-level model registry.
 var DefaultModelRegistry = NewModelRegistry()
+
+// ResetActiveProviderModels resets the provider's models back to the built-in defaults.
+func ResetActiveProviderModels(provider Provider) {
+	initModels()
+	activeModelsMu.Lock()
+	defer activeModelsMu.Unlock()
+
+	var filtered []ModelDefinition
+	for _, m := range activeModels {
+		if m.Provider != provider {
+			filtered = append(filtered, m)
+		}
+	}
+
+	var defaults []ModelDefinition
+	for _, m := range GeneratedModels() {
+		if m.Provider == provider {
+			defaults = append(defaults, m)
+		}
+	}
+	if provider == ProviderCrof {
+		defaults = append(defaults, CustomCrofModels...)
+	}
+	activeModels = append(filtered, defaults...)
+}
