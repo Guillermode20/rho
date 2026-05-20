@@ -29,8 +29,7 @@
 *.tmp
 
 # Pi source (reference, not built)
-/pi/node_modules/
-/pi/dist/
+/pi/
 
 # Extension plugins built locally
 *.so
