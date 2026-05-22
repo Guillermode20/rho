@@ -3,7 +3,6 @@ package main
 
 import (
 	"encoding/json"
-	"flag"
 	"fmt"
 	"io"
 	"os"
@@ -24,42 +23,50 @@ import (
 const version = "0.2.0"
 
 func main() {
-	printHelp := flag.Bool("help", false, "Show help")
-	printVersion := flag.Bool("version", false, "Show version")
-	mode := flag.String("mode", "interactive", "Run mode: interactive, print, json, rpc")
-	modelName := flag.String("model", "", "Model to use (e.g., \"claude-sonnet-4-20250514\", \"gpt-4o\", \"gemini-2.5-pro-exp-03-25\")")
-	providerName := flag.String("provider", "", "Provider to use (e.g., \"anthropic\", \"openai\", \"google\")")
-	apiKey := flag.String("api-key", "", "API key for the provider")
-	systemPrompt := flag.String("system-prompt", codecore.DefaultSystemPrompt, "System prompt for the agent")
-	prompt := flag.String("prompt", "", "Single prompt (print mode)")
-	cwd := flag.String("cwd", "", "Working directory (default: current directory)")
-	listModels := flag.Bool("list-models", false, "List available models")
+	args := ParseArgs(os.Args[1:])
 
-	flag.Parse()
+	// ── Package manager subcommands ────────────────────────────────────────────
+	// Route install / uninstall / remove / update / list / info early (before
+	// any other processing), matching pi's handlePackageCommand() behaviour.
+	if subcmd := detectPackageSubcommand(os.Args[1:]); subcmd != "" {
+		rhoDir := defaultRhoDir()
+		pm := codecore.NewPackageManagerCLI(rhoDir)
+		// Pass the raw args after the first positional (the subcommand).
+		if err := pm.HandleCommand(os.Args[1:]); err != nil {
+			fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+			os.Exit(1)
+		}
+		return
+	}
 
-	if *printHelp {
+	// ── config subcommand ──────────────────────────────────────────────────────
+	if len(os.Args) > 1 && os.Args[1] == "config" {
+		runConfigMode()
+		return
+	}
+
+	// ── --help / -h ────────────────────────────────────────────────────────────
+	if args.Help {
 		printUsage()
 		return
 	}
 
-	if *printVersion {
+	// ── --version / -v ────────────────────────────────────────────────────────
+	if args.Version {
 		fmt.Printf("rho v%s\n", version)
 		return
 	}
 
-	// Resolve working directory
-	workDir := *cwd
-	if workDir == "" {
-		var err error
-		workDir, err = os.Getwd()
-		if err != nil {
-			fmt.Fprintf(os.Stderr, "Cannot get working directory: %v\n", err)
-			os.Exit(1)
-		}
+	// ── Resolve working directory ──────────────────────────────────────────────
+	workDir, err := os.Getwd()
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Cannot get working directory: %v\n", err)
+		os.Exit(1)
 	}
+
 	authStorage := auth.NewAuthStorage(defaultAuthKeysPath())
 	oauthStore := auth.NewOAuthStore(defaultOAuthPath())
-	rhoDir := filepath.Join(os.Getenv("HOME"), ".rho")
+	rhoDir := defaultRhoDir()
 	settingsManager := codecore.NewSettingsManager(filepath.Join(rhoDir, "settings"), workDir)
 	themeManager := agenttheme.NewThemeManager(filepath.Join(rhoDir, "themes"))
 	if err := themeManager.LoadThemes(); err != nil {
@@ -71,46 +78,63 @@ func main() {
 		}
 	}
 
-	// Resolve model
+	// ── Resolve model ──────────────────────────────────────────────────────────
 	var model ai.Model
-	if *modelName != "" {
-		model = resolveModel(*modelName, *providerName)
+	if args.Model != "" {
+		model = resolveModel(args.Model, args.Provider)
 	} else {
 		model = getDefaultModel(authStorage, oauthStore)
 	}
 
-	// Resolve API key
-	if *apiKey == "" {
-		*apiKey = resolveAuthToken(model, authStorage, oauthStore)
+	// ── Resolve API key ────────────────────────────────────────────────────────
+	apiKey := args.APIKey
+	if apiKey == "" {
+		apiKey = resolveAuthToken(model, authStorage, oauthStore)
 	}
 
-	// Resolve provider name
-	if *providerName == "" {
-		*providerName = string(model.Provider)
+	// ── Resolve provider ───────────────────────────────────────────────────────
+	providerName := args.Provider
+	if providerName == "" {
+		providerName = string(model.Provider)
 	}
 	if model.Provider == "" {
-		model.Provider = ai.Provider(*providerName)
+		model.Provider = ai.Provider(providerName)
 	}
 
-	// Check if we have a usable model with auth configured
-	hasAuth := *apiKey != "" || (model.Name != "" && providerHasAuth(model.Provider, authStorage, oauthStore))
+	// ── Auth guard ─────────────────────────────────────────────────────────────
+	hasAuth := apiKey != "" || (model.Name != "" && providerHasAuth(model.Provider, authStorage, oauthStore))
 	if !hasAuth && model.Name != "" {
-		// Model was auto-selected but no auth is configured - reset to let interactive mode handle it
-		if *mode == "interactive" {
+		// Model was auto-selected but no auth is configured.
+		resolvedMode := resolveMode(args)
+		if resolvedMode == "interactive" {
 			model = ai.Model{}
 		}
 	}
 
-	if *listModels {
+	// ── --list-models ──────────────────────────────────────────────────────────
+	if args.ListModels != "" {
 		printModelList(authStorage)
 		return
 	}
 
-	// Build runtime config — include extensions from ~/.rho/extensions/
+	// ── @file attachment processing ────────────────────────────────────────────
+	var fileText string
+	var fileImages []ai.ImageContent
+	if len(args.FileArgs) > 0 {
+		processed, err := processFileArguments(args.FileArgs, ProcessFileOptions{AutoResizeImages: true})
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Error processing file arguments: %v\n", err)
+			os.Exit(1)
+		}
+		fileText = processed.Text
+		fileImages = processed.Images
+	}
+
+	// ── Build RuntimeConfig ────────────────────────────────────────────────────
 	cfg := &RuntimeConfig{
 		Model:        model,
-		SystemPrompt: *systemPrompt,
-		APIKey:       *apiKey,
+		SystemPrompt: buildSystemPrompt(args),
+		APIKey:       apiKey,
 		Provider:     model.Provider,
 		CWD:          workDir,
 		ExtDirs:      []string{codecore.GetExtensionsDir()},
@@ -120,51 +144,200 @@ func main() {
 		ThemeManager: themeManager,
 	}
 
-	switch *mode {
+	// ── Mode dispatch ──────────────────────────────────────────────────────────
+	mode := resolveMode(args)
+
+	switch mode {
 	case "interactive":
 		im := NewInteractiveMode(cfg)
 		if err := im.Run(); err != nil {
 			fmt.Fprintf(os.Stderr, "Error: %v\n", err)
 			os.Exit(1)
 		}
+
 	case "print":
-		if err := runPrintMode(cfg, *prompt); err != nil {
+		promptText := buildPrompt(args, fileText)
+		if promptText == "" {
+			// Try stdin
+			stat, _ := os.Stdin.Stat()
+			if (stat.Mode() & os.ModeCharDevice) == 0 {
+				data, err := io.ReadAll(os.Stdin)
+				if err == nil {
+					promptText = strings.TrimSpace(string(data))
+				}
+			}
+		}
+		if promptText == "" {
+			fmt.Fprintf(os.Stderr, "No prompt provided; pass text as arguments, @files, or pipe input\n")
+			os.Exit(1)
+		}
+		if err := runPrintMode(cfg, promptText, fileImages); err != nil {
 			fmt.Fprintf(os.Stderr, "Error: %v\n", err)
 			os.Exit(1)
 		}
+
 	case "json":
-		if err := runJSONMode(cfg, *prompt); err != nil {
+		promptText := buildPrompt(args, fileText)
+		if err := runJSONMode(cfg, promptText, fileImages); err != nil {
 			fmt.Fprintf(os.Stderr, "Error: %v\n", err)
 			os.Exit(1)
 		}
+
 	case "rpc":
+		if len(args.FileArgs) > 0 {
+			fmt.Fprintf(os.Stderr, "Error: @file arguments are not supported in RPC mode\n")
+			os.Exit(1)
+		}
 		if err := runRPCMode(cfg); err != nil {
 			fmt.Fprintf(os.Stderr, "Error: %v\n", err)
 			os.Exit(1)
 		}
+
 	default:
-		fmt.Fprintf(os.Stderr, "Unknown mode: %s\n", *mode)
+		fmt.Fprintf(os.Stderr, "Unknown mode: %s\n", mode)
 		os.Exit(1)
 	}
 }
+
+// ============================================================================
+// Mode resolution
+// ============================================================================
+
+func resolveMode(args Args) string {
+	if args.Mode != "" {
+		return args.Mode
+	}
+	if args.Print {
+		return "print"
+	}
+	// If stdin is not a terminal (piped) go to print mode.
+	stat, _ := os.Stdin.Stat()
+	if (stat.Mode() & os.ModeCharDevice) == 0 {
+		return "print"
+	}
+	return "interactive"
+}
+
+// ============================================================================
+// Prompt builder
+// ============================================================================
+
+func buildPrompt(args Args, fileText string) string {
+	var parts []string
+	if fileText != "" {
+		parts = append(parts, fileText)
+	}
+	if len(args.Messages) > 0 {
+		parts = append(parts, strings.Join(args.Messages, " "))
+	}
+	return strings.TrimSpace(strings.Join(parts, "\n"))
+}
+
+// ============================================================================
+// System prompt builder
+// ============================================================================
+
+func buildSystemPrompt(args Args) string {
+	base := args.SystemPrompt
+	if base == "" {
+		base = codecore.DefaultSystemPrompt
+	}
+	if len(args.AppendSystemPrompt) > 0 {
+		base = base + "\n" + strings.Join(args.AppendSystemPrompt, "\n")
+	}
+	return base
+}
+
+// ============================================================================
+// Package subcommand detection
+// ============================================================================
+
+// detectPackageSubcommand returns the subcommand if the first positional arg
+// is a package management verb (install / uninstall / remove / update / list / info).
+func detectPackageSubcommand(args []string) string {
+	for _, arg := range args {
+		if strings.HasPrefix(arg, "-") {
+			continue // skip flags
+		}
+		switch arg {
+		case "install", "i", "add",
+			"uninstall", "remove", "rm",
+			"update", "upgrade",
+			"list", "ls",
+			"info":
+			return arg
+		}
+		// First non-flag argument is not a subcommand.
+		break
+	}
+	return ""
+}
+
+// ============================================================================
+// config subcommand
+// ============================================================================
+
+func runConfigMode() {
+	// In the Go implementation we open the settings file in the user's editor.
+	rhoDir := defaultRhoDir()
+	settingsPath := filepath.Join(rhoDir, "settings", "settings.json")
+	fmt.Printf("rho configuration file: %s\n", settingsPath)
+	fmt.Println("Edit this file with your text editor to configure rho.")
+}
+
+// ============================================================================
+// Default directories
+// ============================================================================
+
+func defaultRhoDir() string {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		home = os.Getenv("HOME")
+	}
+	return filepath.Join(home, ".rho")
+}
+
+// ============================================================================
+// Usage
+// ============================================================================
 
 func printUsage() {
 	fmt.Print(`rho - A lightweight extensible TUI coding agent
 
 Usage:
-  rho [flags] [prompt]
+  rho [flags] [prompt] [@files...]
+  rho install <source>
+  rho remove <source>
+  rho update [source]
+  rho list
+  rho info <source>
+  rho config
 
 Flags:
-  -help            Show this help message
-  -version         Show version
-  -mode            Run mode: interactive (default), print, json, rpc
-  -model           Model to use (e.g., "claude-sonnet-4-20250514", "gpt-4o")
-  -provider        Provider to use (e.g., "anthropic", "openai", "google")
-  -api-key         API key for the provider
-  -system-prompt   System prompt for the agent
-  -prompt          Single prompt (print mode)
-  -cwd             Working directory (default: current directory)
-  -list-models     List available models
+  --help, -h               Show this help message
+  --version, -v            Show version
+  --mode <mode>            Run mode: interactive (default), print, json, rpc
+  --model <name>           Model to use (e.g., "claude-sonnet-4-20250514", "gpt-4o")
+  --provider <name>        Provider to use (e.g., "anthropic", "openai", "google")
+  --api-key <key>          API key for the provider
+  --system-prompt <text>   Override system prompt
+  --append-system-prompt   Append text to system prompt (repeatable)
+  --thinking <level>       Thinking level: off, minimal, low, medium, high, xhigh
+  --continue, -c           Continue the most recent session
+  --resume, -r             Pick a session to resume
+  --session <id>           Load a specific session
+  --no-session             Disable session persistence
+  --print, -p              Print mode: output response to stdout
+  --list-models            List available models
+  --tools <names>          Comma-separated list of tools to enable
+  --no-tools               Disable all tools
+  --no-builtin-tools       Disable built-in tools only
+  --extension, -e <path>   Load extra extension (repeatable)
+  --no-extensions          Disable all extensions
+  --verbose                Verbose output
+
+@file arguments:
+  Pass @path/to/file to include a file (image or text) in the prompt.
 
 Environment Variables:
   ANTHROPIC_API_KEY      API key for Anthropic
@@ -179,11 +352,18 @@ Interactive Commands:
 
 Examples:
   rho
-  rho -model gpt-4o -provider openai -prompt "Hello"
-  rho -mode print -prompt "List files" -cwd /path/to/project
-  rho -list-models
+  rho "List all Go files"
+  rho --model gpt-4o --provider openai "Hello"
+  rho --print "Summarise this" @notes.txt
+  rho --mode rpc
+  rho install npm:@foo/bar
+  rho list
 `)
 }
+
+// ============================================================================
+// Model resolution
+// ============================================================================
 
 func resolveModel(modelName, providerName string) ai.Model {
 	for _, def := range ai.DefaultModels() {
@@ -199,7 +379,7 @@ func resolveModel(modelName, providerName string) ai.Model {
 		}
 	}
 
-	// If model has a provider prefix like "anthropic/claude-sonnet-4", parse it
+	// If model has a provider prefix like "anthropic/claude-sonnet-4", parse it.
 	if strings.Contains(modelName, "/") {
 		parts := strings.SplitN(modelName, "/", 2)
 		providerName = parts[0]
@@ -216,14 +396,14 @@ func resolveModel(modelName, providerName string) ai.Model {
 		}
 	}
 
-	// Fallback: construct model from parts
+	// Fallback: construct model from parts.
 	api := ai.APIOpenAICompletions
 	prov := ai.Provider(providerName)
 	if prov == "" {
 		prov = ai.ProviderOpenAI
 	}
 
-	// Auto-detect API from provider
+	// Auto-detect API from provider.
 	switch prov {
 	case ai.ProviderAnthropic:
 		api = ai.APIAnthropicMessages
@@ -248,7 +428,7 @@ func getDefaultModel(authStorage *auth.AuthStorage, oauthStore *auth.OAuthStore)
 	}
 	available := ai.AvailableModels(authCheck)
 	if len(available) > 0 {
-		// Prefer Anthropic models first, then OpenAI, then first available
+		// Prefer Anthropic models first, then OpenAI, then first available.
 		preferred := []ai.Provider{ai.ProviderAnthropic, ai.ProviderOpenAI, ai.ProviderGoogle}
 		for _, p := range preferred {
 			for _, m := range available {
@@ -262,7 +442,7 @@ func getDefaultModel(authStorage *auth.AuthStorage, oauthStore *auth.OAuthStore)
 				}
 			}
 		}
-		// Fallback to first available
+		// Fallback to first available.
 		m := available[0]
 		return ai.Model{
 			API:      m.API,
@@ -271,25 +451,22 @@ func getDefaultModel(authStorage *auth.AuthStorage, oauthStore *auth.OAuthStore)
 			BaseURL:  m.BaseURL,
 		}
 	}
-	// No models with configured auth available - return empty model
+	// No models with configured auth available — return empty model.
 	return ai.Model{}
 }
 
 // providerHasAuth checks if a provider has configured authentication via any source.
 func providerHasAuth(provider ai.Provider, authStorage *auth.AuthStorage, oauthStore *auth.OAuthStore) bool {
-	// Check stored API keys
 	if authStorage != nil {
 		if authStorage.HasAPIKey(string(provider)) {
 			return true
 		}
 	}
-	// Check OAuth credentials
 	if oauthStore != nil {
 		if oauthStore.HasProvider(string(provider)) {
 			return true
 		}
 	}
-	// Check environment variables
 	if ai.ProviderHasEnvKey(provider) {
 		return true
 	}
@@ -326,7 +503,7 @@ func resolveAuthToken(model ai.Model, authStorage *auth.AuthStorage, oauthStore 
 	}
 	if oauthStore != nil {
 		if cred, ok := oauthStore.Get(string(model.Provider)); ok && strings.TrimSpace(cred.AccessToken) != "" {
-			// Check if OAuth credentials need refresh
+			// Check if OAuth credentials need refresh.
 			goCreds := &ai.OAuthCredentials{
 				AccessToken:  cred.AccessToken,
 				RefreshToken: cred.RefreshToken,
@@ -338,7 +515,6 @@ func resolveAuthToken(model ai.Model, authStorage *auth.AuthStorage, oauthStore 
 			provider := ai.OAuthProviderFactory(ai.OAuthProviderID(cred.Provider))
 			refreshed, err := ai.RefreshIfNeeded(goCreds, provider)
 			if err == nil && refreshed != goCreds && strings.TrimSpace(refreshed.AccessToken) != "" {
-				// Save refreshed credentials
 				_ = oauthStore.Save(&auth.OAuthCredential{
 					Provider:     refreshed.ProviderID,
 					AccessToken:  refreshed.AccessToken,
@@ -365,13 +541,11 @@ func firstConfiguredAPIKey(authStorage *auth.AuthStorage, provider string, envNa
 }
 
 func resolveAPIKeyForProvider(provider ai.Provider, authStorage *auth.AuthStorage) string {
-	// 1. Try env keys
 	for _, envKey := range ai.ProviderEnvKeys(provider) {
 		if val := os.Getenv(envKey); val != "" {
 			return val
 		}
 	}
-	// 2. Try authStorage
 	if authStorage != nil {
 		if val, ok := authStorage.GetAPIKey(string(provider)); ok && strings.TrimSpace(val) != "" {
 			return val
@@ -381,7 +555,6 @@ func resolveAPIKeyForProvider(provider ai.Provider, authStorage *auth.AuthStorag
 }
 
 func printModelList(authStorage *auth.AuthStorage) {
-	// Fetch models for all providers that have configured auth, in parallel
 	uniqueProviders := make(map[ai.Provider]bool)
 	for _, def := range ai.DefaultModels() {
 		uniqueProviders[def.Provider] = true
@@ -394,10 +567,9 @@ func printModelList(authStorage *auth.AuthStorage) {
 			continue
 		}
 		wg.Add(1)
-		provider := provider // capture
+		provider := provider
 		go func() {
 			defer wg.Done()
-			// FetchModelsForProvider has its own 10s internal timeout
 			defs, err := providers.FetchModelsForProvider(provider, key)
 			if err == nil && len(defs) > 0 {
 				ai.UpdateActiveProviderModels(provider, defs)
@@ -414,7 +586,6 @@ func printModelList(authStorage *auth.AuthStorage) {
 		if def.Reasoning {
 			reasoning = " [reasoning]"
 		}
-		// Check if this provider has any auth configured
 		available := resolveAPIKeyForProvider(def.Provider, authStorage) != ""
 		indicator := " "
 		if !available {
@@ -427,39 +598,15 @@ func printModelList(authStorage *auth.AuthStorage) {
 	fmt.Println("  Use /login <provider> to configure an API key, or set the appropriate env var.")
 }
 
-func readPrompt(promptText string) (string, error) {
-	if promptText == "" {
-		args := flag.Args()
-		if len(args) > 0 {
-			promptText = strings.Join(args, " ")
-		} else {
-			// Read from stdin if piped
-			stat, _ := os.Stdin.Stat()
-			if (stat.Mode() & os.ModeCharDevice) == 0 {
-				data, err := io.ReadAll(os.Stdin)
-				if err != nil {
-					return "", err
-				}
-				promptText = strings.TrimSpace(string(data))
-			}
-		}
-		if promptText == "" {
-			return "", fmt.Errorf("no prompt provided; use -prompt, pass text as arguments, or pipe input")
-		}
-	}
+// ============================================================================
+// Run modes
+// ============================================================================
 
-	return promptText, nil
-}
-
-func runPrintMode(cfg *RuntimeConfig, promptText string) error {
-	promptText, err := readPrompt(promptText)
-	if err != nil {
-		return err
-	}
-
+func runPrintMode(cfg *RuntimeConfig, promptText string, images []ai.ImageContent) error {
 	results, streamed, err := runAgentOnce(cfg, []agent.AgentMessage{{
 		Role:    ai.RoleUser,
 		Content: promptText,
+		Images:  images,
 	}}, true)
 	if err != nil {
 		return err
@@ -477,7 +624,7 @@ func runPrintMode(cfg *RuntimeConfig, promptText string) error {
 	return fmt.Errorf("no response generated")
 }
 
-func runJSONMode(cfg *RuntimeConfig, promptText string) error {
+func runJSONMode(cfg *RuntimeConfig, promptText string, images []ai.ImageContent) error {
 	var input struct {
 		Messages []agent.AgentMessage `json:"messages"`
 		Prompt   string               `json:"prompt"`
@@ -501,12 +648,10 @@ func runJSONMode(cfg *RuntimeConfig, promptText string) error {
 		if prompt == "" {
 			prompt = promptText
 		}
-		var err error
-		prompt, err = readPrompt(prompt)
-		if err != nil {
-			return err
+		if prompt == "" {
+			return fmt.Errorf("no prompt provided")
 		}
-		input.Messages = []agent.AgentMessage{{Role: ai.RoleUser, Content: prompt}}
+		input.Messages = []agent.AgentMessage{{Role: ai.RoleUser, Content: prompt, Images: images}}
 	}
 
 	results, _, err := runAgentOnce(cfg, input.Messages, false)
@@ -519,10 +664,11 @@ func runJSONMode(cfg *RuntimeConfig, promptText string) error {
 }
 
 func runRPCMode(cfg *RuntimeConfig) error {
-	rhoDir := filepath.Join(os.Getenv("HOME"), ".rho")
+	rhoDir := defaultRhoDir()
 	server := rpc.NewServer()
 	server.SetModel(cfg.Model)
 	server.SetAPIKey(cfg.APIKey)
+	server.SetSystemPrompt(cfg.SystemPrompt)
 	server.SetTools(tools.AllTools(cfg.CWD))
 	server.SetSessionManager(agent.NewSessionManager(filepath.Join(rhoDir, "sessions")))
 	return server.Run()
@@ -568,6 +714,10 @@ func runAgentOnce(cfg *RuntimeConfig, messages []agent.AgentMessage, streamToStd
 	})
 	return results, streamed, err
 }
+
+// ============================================================================
+// Config file (legacy helpers kept for interactive mode compatibility)
+// ============================================================================
 
 type config struct {
 	APIKey       string `json:"apiKey"`

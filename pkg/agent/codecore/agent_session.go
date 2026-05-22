@@ -12,10 +12,11 @@ import (
 )
 
 type AgentSessionConfig struct {
-	Model        ai.Model
-	SystemPrompt string
-	APIKey       string
-	CWD          string
+	Model         ai.Model         `json:"model"`
+	SystemPrompt  string           `json:"systemPrompt,omitempty"`
+	APIKey        string           `json:"apiKey,omitempty"`
+	CWD           string           `json:"cwd,omitempty"`
+	ThinkingLevel ai.ThinkingLevel `json:"thinkingLevel,omitempty"`
 }
 
 type SessionStats struct {

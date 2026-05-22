@@ -35,8 +35,9 @@ type AgentMessage struct {
 	API          ai.API        `json:"api,omitempty"`
 	Provider     ai.Provider   `json:"provider,omitempty"`
 	Model        string        `json:"model,omitempty"`
-	Hide         bool          `json:"hide,omitempty"`
-	Timestamp    int64         `json:"timestamp,omitempty"`
+	Images       []ai.ImageContent `json:"images,omitempty"`
+	Hide         bool              `json:"hide,omitempty"`
+	Timestamp    int64             `json:"timestamp,omitempty"`
 }
 
 // ToolExecutionMode controls how tool calls are executed.

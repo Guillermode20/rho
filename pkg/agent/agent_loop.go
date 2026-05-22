@@ -167,7 +167,23 @@ func (l *AgentLoop) buildLLMContext() ai.Context {
 	for _, m := range l.context.Messages {
 		switch m.Role {
 		case ai.RoleUser:
-			messages = append(messages, ai.NewUserMessage(m.Content))
+			if len(m.Images) > 0 {
+				blocks := []ai.ContentBlock{
+					{Text: &ai.TextContent{Type: "text", Text: m.Content}},
+				}
+				for _, img := range m.Images {
+					imgCopy := img
+					blocks = append(blocks, ai.ContentBlock{Image: &imgCopy})
+				}
+				umsg := ai.UserMessage{
+					Role:      ai.RoleUser,
+					Content:   blocks,
+					Timestamp: m.Timestamp,
+				}
+				messages = append(messages, ai.Message{User: &umsg})
+			} else {
+				messages = append(messages, ai.NewUserMessage(m.Content))
+			}
 		case ai.RoleAssistant:
 			amsg := ai.NewAssistantMessage(l.config.Model.API, l.config.Model.Provider, l.config.Model.Name)
 			amsg.Content = nil
@@ -496,7 +512,29 @@ func ConvertToLLMMessages(messages []AgentMessage) []ai.Message {
 	for _, m := range messages {
 		switch m.Role {
 		case ai.RoleUser:
-			result = append(result, ai.NewUserMessage(m.Content))
+			if len(m.Images) > 0 {
+				var blocks []ai.ContentBlock
+				if m.Content != "" {
+					blocks = append(blocks, ai.ContentBlock{
+						Text: &ai.TextContent{Type: "text", Text: m.Content},
+					})
+				}
+				for _, img := range m.Images {
+					imgCopy := img
+					blocks = append(blocks, ai.ContentBlock{
+						Image: &imgCopy,
+					})
+				}
+				result = append(result, ai.Message{
+					User: &ai.UserMessage{
+						Role:      ai.RoleUser,
+						Content:   blocks,
+						Timestamp: m.Timestamp,
+					},
+				})
+			} else {
+				result = append(result, ai.NewUserMessage(m.Content))
+			}
 		case ai.RoleAssistant:
 			amsg := ai.NewAssistantMessage(m.API, m.Provider, m.Model)
 			if m.Content != "" {
@@ -516,6 +554,26 @@ func ConvertToLLMMessages(messages []AgentMessage) []ai.Message {
 		}
 	}
 	return result
+}
+
+// SetModel updates the model configured for the agent loop.
+func (l *AgentLoop) SetModel(m ai.Model) {
+	l.config.Model = m
+}
+
+// SetAPIKey updates the API key used by the agent loop.
+func (l *AgentLoop) SetAPIKey(key string) {
+	l.config.APIKey = key
+}
+
+// SetSystemPrompt updates the system prompt used by the agent loop.
+func (l *AgentLoop) SetSystemPrompt(prompt string) {
+	l.config.SystemPrompt = prompt
+}
+
+// SetThinkingLevel updates the thinking level of the agent loop.
+func (l *AgentLoop) SetThinkingLevel(level ai.ThinkingLevel) {
+	l.config.ThinkingLevel = level
 }
 
 // init ensures encoding/json is used.

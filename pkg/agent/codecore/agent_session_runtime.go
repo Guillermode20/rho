@@ -15,14 +15,16 @@ import (
 
 // CreateAgentSessionRuntimeOptions configures a new session runtime.
 type CreateAgentSessionRuntimeOptions struct {
-	Model        ai.Model
-	SystemPrompt string
-	APIKey       string
-	CWD          string
-	Extensions   *extensions.Runtime
-	Settings     *SettingsManager
-	SessionMgr   *agent.SessionManager
-	AuthStorage  *auth.AuthStorage
+	Model         ai.Model
+	SystemPrompt  string
+	APIKey        string
+	CWD           string
+	ThinkingLevel ai.ThinkingLevel
+	Extensions    *extensions.Runtime
+	Settings      *SettingsManager
+	SessionMgr    *agent.SessionManager
+	AuthStorage   *auth.AuthStorage
+	ModelReg      *ModelRegistry
 }
 
 // AgentSessionRuntimeDiagnostic is a diagnostic message from the runtime.
@@ -43,6 +45,7 @@ type AgentSessionRuntime struct {
 	settings   *SettingsManager
 	sessionMgr *agent.SessionManager
 	auth       *auth.AuthStorage
+	modelReg   *ModelRegistry
 
 	sessionID   string
 	started     bool
@@ -53,6 +56,9 @@ type AgentSessionRuntime struct {
 	totalCost   float64
 	toolCalls   int
 
+	uiContext   extensions.ExtensionUIContext
+	hasUI       bool
+
 	diagnostics []AgentSessionRuntimeDiagnostic
 }
 
@@ -62,9 +68,10 @@ func NewAgentSessionRuntime(sessionID string, opts CreateAgentSessionRuntimeOpti
 	compacter := compaction.NewCompacter(compaction.DefaultCompactionSettings())
 
 	loop := agent.NewAgentLoop(agent.AgentLoopConfig{
-		Model:        opts.Model,
-		SystemPrompt: opts.SystemPrompt,
-		APIKey:       opts.APIKey,
+		Model:         opts.Model,
+		SystemPrompt:  opts.SystemPrompt,
+		APIKey:        opts.APIKey,
+		ThinkingLevel: opts.ThinkingLevel,
 		BeforeProviderRequest: func(ctx ai.Context) (ai.Context, error) {
 			if opts.Extensions != nil {
 				extCtx := extensions.ExtensionContext{
@@ -121,16 +128,18 @@ func NewAgentSessionRuntime(sessionID string, opts CreateAgentSessionRuntimeOpti
 
 	return &AgentSessionRuntime{
 		config: AgentSessionConfig{
-			Model:        opts.Model,
-			SystemPrompt: opts.SystemPrompt,
-			APIKey:       opts.APIKey,
-			CWD:          opts.CWD,
+			Model:         opts.Model,
+			SystemPrompt:  opts.SystemPrompt,
+			APIKey:        opts.APIKey,
+			CWD:           opts.CWD,
+			ThinkingLevel: opts.ThinkingLevel,
 		},
 		agent:      loop,
 		extRuntime: opts.Extensions,
 		settings:   opts.Settings,
 		sessionMgr: opts.SessionMgr,
 		auth:       opts.AuthStorage,
+		modelReg:   opts.ModelReg,
 		sessionID:  sessionID,
 		startTime:  time.Now(),
 	}
@@ -182,6 +191,11 @@ func (r *AgentSessionRuntime) Stop() error {
 
 // SendMessage sends a user message and returns the assistant response.
 func (r *AgentSessionRuntime) SendMessage(content string) (*agent.AgentMessage, error) {
+	return r.SendMessageStream(content, nil, func(event agent.AgentEvent) error { return nil })
+}
+
+// SendMessageStream sends a user message and streams assistant response events.
+func (r *AgentSessionRuntime) SendMessageStream(content string, images []ai.ImageContent, callback agent.AgentEventCallback) (*agent.AgentMessage, error) {
 	r.mu.Lock()
 	if r.stopped {
 		r.mu.Unlock()
@@ -198,9 +212,10 @@ func (r *AgentSessionRuntime) SendMessage(content string) (*agent.AgentMessage, 
 
 	// Create context
 	context := agent.AgentContext{
-		SystemPrompt: r.config.SystemPrompt,
-		Model:        r.config.Model,
-		Tools:        allTools,
+		SystemPrompt:  r.config.SystemPrompt,
+		Model:         r.config.Model,
+		Tools:         allTools,
+		ThinkingLevel: r.config.ThinkingLevel,
 	}
 
 	// Fire turn start
@@ -232,7 +247,7 @@ func (r *AgentSessionRuntime) SendMessage(content string) (*agent.AgentMessage, 
 
 	// Fire context event — allows extensions to inject or modify messages
 	allPrompts := []agent.AgentMessage{
-		{Role: ai.RoleUser, Content: content, Timestamp: time.Now().UnixMilli()},
+		{Role: ai.RoleUser, Content: content, Images: images, Timestamp: time.Now().UnixMilli()},
 	}
 	if r.extRuntime != nil {
 		extCtx := r.buildExtensionContext()
@@ -252,6 +267,9 @@ func (r *AgentSessionRuntime) SendMessage(content string) (*agent.AgentMessage, 
 			r.mu.Lock()
 			r.toolCalls++
 			r.mu.Unlock()
+		}
+		if callback != nil {
+			return callback(event)
 		}
 		return nil
 	}
@@ -371,8 +389,100 @@ func (r *AgentSessionRuntime) GetDiagnostics() []AgentSessionRuntimeDiagnostic {
 
 // buildExtensionContext creates an extension context for hook dispatch.
 func (r *AgentSessionRuntime) buildExtensionContext() extensions.ExtensionContext {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
 	return extensions.ExtensionContext{
-		HasUI: false,
-		CWD:   r.config.CWD,
+		UI:               r.uiContext,
+		HasUI:            r.hasUI,
+		CWD:              r.config.CWD,
+		Model:            &r.config.Model,
+		ExtensionRuntime: r.extRuntime,
+		AgentLoop:        r.agent,
+		Shutdown: func() {
+			if r.agent != nil {
+				// handled by session shutdown
+			}
+		},
 	}
+}
+
+// SetUIContext sets the UI context for extensions.
+func (r *AgentSessionRuntime) SetUIContext(ui extensions.ExtensionUIContext) {
+	r.mu.Lock()
+	r.uiContext = ui
+	r.hasUI = true
+	r.mu.Unlock()
+}
+
+// GetModel returns the current model.
+func (r *AgentSessionRuntime) GetModel() ai.Model {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	return r.config.Model
+}
+
+// SetModel updates the model.
+func (r *AgentSessionRuntime) SetModel(model ai.Model) {
+	r.mu.Lock()
+	r.config.Model = model
+	if r.agent != nil {
+		r.agent.SetModel(model)
+	}
+	r.mu.Unlock()
+}
+
+// GetThinkingLevel returns the current thinking level.
+func (r *AgentSessionRuntime) GetThinkingLevel() ai.ThinkingLevel {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	return r.config.ThinkingLevel
+}
+
+// SetThinkingLevel updates the thinking level.
+func (r *AgentSessionRuntime) SetThinkingLevel(level ai.ThinkingLevel) {
+	r.mu.Lock()
+	r.config.ThinkingLevel = level
+	if r.agent != nil {
+		r.agent.SetThinkingLevel(level)
+	}
+	r.mu.Unlock()
+}
+
+// GetSystemPrompt returns the system prompt.
+func (r *AgentSessionRuntime) GetSystemPrompt() string {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	return r.config.SystemPrompt
+}
+
+// SetSystemPrompt updates the system prompt.
+func (r *AgentSessionRuntime) SetSystemPrompt(prompt string) {
+	r.mu.Lock()
+	r.config.SystemPrompt = prompt
+	if r.agent != nil {
+		r.agent.SetSystemPrompt(prompt)
+	}
+	r.mu.Unlock()
+}
+
+// GetAPIKey returns the API key.
+func (r *AgentSessionRuntime) GetAPIKey() string {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	return r.config.APIKey
+}
+
+// SetAPIKey updates the API key.
+func (r *AgentSessionRuntime) SetAPIKey(key string) {
+	r.mu.Lock()
+	r.config.APIKey = key
+	if r.agent != nil {
+		r.agent.SetAPIKey(key)
+	}
+	r.mu.Unlock()
+}
+
+// GetModelRegistry returns the model registry.
+func (r *AgentSessionRuntime) GetModelRegistry() *ModelRegistry {
+	return r.modelReg
 }
