@@ -13,12 +13,12 @@ import (
 
 // CreateAgentSessionServicesOptions configures service creation.
 type CreateAgentSessionServicesOptions struct {
-	RhoDir      string
-	Model       ai.Model
+	RhoDir       string
+	Model        ai.Model
 	SystemPrompt string
-	APIKey      string
-	CWD         string
-	ExtDirs     []string
+	APIKey       string
+	CWD          string
+	ExtDirs      []string
 }
 
 // AgentSessionServices is a dependency injection container.

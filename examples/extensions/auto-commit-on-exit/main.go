@@ -5,7 +5,8 @@
 //
 // Build:  go build -o auto-commit-on-exit ./examples/extensions/auto-commit-on-exit/
 // Deploy: cp auto-commit-on-exit ~/.rho/extensions/auto-commit-on-exit/
-//         cp examples/extensions/auto-commit-on-exit/rho.toml ~/.rho/extensions/auto-commit-on-exit/
+//
+//	cp examples/extensions/auto-commit-on-exit/rho.toml ~/.rho/extensions/auto-commit-on-exit/
 package main
 
 import (

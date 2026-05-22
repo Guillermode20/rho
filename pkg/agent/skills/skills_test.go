@@ -24,6 +24,18 @@ func TestParseSkillFileWithFrontmatter(t *testing.T) {
 func TestParseSkillFileNoFrontmatter(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "simple.md")
+	// Test file with no frontmatter at all — parser should error since description is required
+	os.WriteFile(path, []byte("Just text"), 0644)
+
+	_, err := parseSkillFile(path)
+	if err == nil {
+		t.Fatal("expected error for file without frontmatter, got nil")
+	}
+}
+
+func TestParseSkillFileWithFrontmatterOnly(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "simple.md")
 	os.WriteFile(path, []byte("---\nname: simple\ndescription: No frontmatter skill\n---\nJust text"), 0644)
 
 	skill, err := parseSkillFile(path)

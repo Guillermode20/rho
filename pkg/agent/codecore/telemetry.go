@@ -18,13 +18,13 @@ type TelemetryEvent struct {
 
 // TelemetryCollector collects telemetry events with user opt-in/opt-out.
 type TelemetryCollector struct {
-	mu          sync.RWMutex
-	enabled     bool
-	filePath    string
-	events      []TelemetryEvent
-	sessionID   string
-	startTime   time.Time
-	eventCount  int
+	mu         sync.RWMutex
+	enabled    bool
+	filePath   string
+	events     []TelemetryEvent
+	sessionID  string
+	startTime  time.Time
+	eventCount int
 }
 
 // NewTelemetryCollector creates a new telemetry collector.
@@ -144,8 +144,8 @@ func (tc *TelemetryCollector) RecordModelUsage(provider, model string, inputToke
 // RecordToolExecution records a tool execution.
 func (tc *TelemetryCollector) RecordToolExecution(toolName string, success bool, durationMs int64) {
 	tc.Record("tool_execution", map[string]interface{}{
-		"tool":      toolName,
-		"success":   success,
+		"tool":       toolName,
+		"success":    success,
 		"durationMs": durationMs,
 	})
 }
@@ -185,21 +185,21 @@ func (tc *TelemetryCollector) GetStats() TelemetryStats {
 	tc.mu.RLock()
 	defer tc.mu.RUnlock()
 	return TelemetryStats{
-		Enabled:     tc.enabled,
-		EventCount:  tc.eventCount,
-		SessionID:   tc.sessionID,
-		UptimeMs:    time.Since(tc.startTime).Milliseconds(),
+		Enabled:      tc.enabled,
+		EventCount:   tc.eventCount,
+		SessionID:    tc.sessionID,
+		UptimeMs:     time.Since(tc.startTime).Milliseconds(),
 		PendingFlush: len(tc.events),
 	}
 }
 
 // TelemetryStats provides a snapshot of telemetry state.
 type TelemetryStats struct {
-	Enabled     bool   `json:"enabled"`
-	EventCount  int    `json:"eventCount"`
-	SessionID   string `json:"sessionId"`
-	UptimeMs    int64  `json:"uptimeMs"`
-	PendingFlush int   `json:"pendingFlush"`
+	Enabled      bool   `json:"enabled"`
+	EventCount   int    `json:"eventCount"`
+	SessionID    string `json:"sessionId"`
+	UptimeMs     int64  `json:"uptimeMs"`
+	PendingFlush int    `json:"pendingFlush"`
 }
 
 // RecordError records an error event.

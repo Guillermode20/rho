@@ -29,11 +29,11 @@ const (
 // AnthropicOptions extends the base stream options.
 type AnthropicOptions struct {
 	ai.StreamOptions
-	ThinkingEnabled     bool              `json:"thinking_enabled,omitempty"`
-	ThinkingBudgetTokens int              `json:"thinking_budget_tokens,omitempty"`
-	Effort              AnthropicEffort   `json:"effort,omitempty"`
-	ToolChoice          interface{}       `json:"tool_choice,omitempty"`
-	BetaHeaders         []string          `json:"-"`
+	ThinkingEnabled      bool            `json:"thinking_enabled,omitempty"`
+	ThinkingBudgetTokens int             `json:"thinking_budget_tokens,omitempty"`
+	Effort               AnthropicEffort `json:"effort,omitempty"`
+	ToolChoice           interface{}     `json:"tool_choice,omitempty"`
+	BetaHeaders          []string        `json:"-"`
 }
 
 const (
@@ -225,7 +225,7 @@ func buildAnthropicRequest(model ai.Model, ctx ai.Context, opts *AnthropicOption
 				content = tr.Content[0].Text.Text
 			}
 			messages = append(messages, map[string]interface{}{
-				"role":        "user",
+				"role": "user",
 				"content": []map[string]interface{}{
 					{
 						"type":        "tool_result",
@@ -369,9 +369,9 @@ func convertContentBlocks(blocks []ai.ContentBlock) []map[string]interface{} {
 			result = append(result, map[string]interface{}{
 				"type": "image",
 				"source": map[string]interface{}{
-					"type":      "base64",
+					"type":       "base64",
 					"media_type": block.Image.MimeType,
-					"data":      block.Image.Data,
+					"data":       block.Image.Data,
 				},
 			})
 		}
@@ -410,9 +410,9 @@ func parseAnthropicSSE(body io.ReadCloser, callback ai.StreamEventCallback, mode
 	emitPartial := func() {
 		partial := msg
 		callback(ai.StreamEvent{
-			Type:    "start",
+			Type:         "start",
 			ContentIndex: contentIndex,
-			Partial: &partial,
+			Partial:      &partial,
 		})
 	}
 
@@ -493,7 +493,7 @@ func parseAnthropicSSE(body io.ReadCloser, callback ai.StreamEventCallback, mode
 
 		case "content_block_start":
 			var start struct {
-				Index     int             `json:"index"`
+				Index        int             `json:"index"`
 				ContentBlock json.RawMessage `json:"content_block"`
 			}
 			json.Unmarshal([]byte(data), &start)
@@ -508,8 +508,8 @@ func parseAnthropicSSE(body io.ReadCloser, callback ai.StreamEventCallback, mode
 			switch block.Type {
 			case "tool_use":
 				var tool struct {
-					ID   string          `json:"id"`
-					Name string          `json:"name"`
+					ID    string          `json:"id"`
+					Name  string          `json:"name"`
 					Input json.RawMessage `json:"input"`
 				}
 				json.Unmarshal(start.ContentBlock, &tool)
@@ -528,9 +528,9 @@ func parseAnthropicSSE(body io.ReadCloser, callback ai.StreamEventCallback, mode
 
 				msg.Content = append(msg.Content, ai.ContentBlock{ToolCall: &tc})
 				callback(ai.StreamEvent{
-					Type:    "toolcall_start",
+					Type:         "toolcall_start",
 					ContentIndex: contentIndex,
-					ToolCall: &tc,
+					ToolCall:     &tc,
 				})
 
 			case "text":
@@ -539,7 +539,7 @@ func parseAnthropicSSE(body io.ReadCloser, callback ai.StreamEventCallback, mode
 			case "thinking":
 				thinkingBuilder.Reset()
 				callback(ai.StreamEvent{
-					Type:    "thinking_start",
+					Type:         "thinking_start",
 					ContentIndex: contentIndex,
 				})
 			}
@@ -566,9 +566,9 @@ func parseAnthropicSSE(body io.ReadCloser, callback ai.StreamEventCallback, mode
 
 				msg.Content = buildContentBlocks("text", contentIndex, textBuilder.String(), toolCallID, toolName, toolArgsBuilder.String(), thinkingBuilder.String())
 				callback(ai.StreamEvent{
-					Type:    "text_delta",
+					Type:         "text_delta",
 					ContentIndex: contentIndex,
-					Delta:   td.Text,
+					Delta:        td.Text,
 					Partial: &ai.AssistantMessage{
 						Role:    ai.RoleAssistant,
 						Content: msg.Content,
@@ -591,9 +591,9 @@ func parseAnthropicSSE(body io.ReadCloser, callback ai.StreamEventCallback, mode
 
 				msg.Content = buildContentBlocks("thinking", contentIndex, textBuilder.String(), toolCallID, toolName, toolArgsBuilder.String(), thinkingBuilder.String())
 				callback(ai.StreamEvent{
-					Type:    "thinking_delta",
+					Type:         "thinking_delta",
 					ContentIndex: contentIndex,
-					Delta:   td.Thinking,
+					Delta:        td.Thinking,
 				})
 			}
 
@@ -603,7 +603,7 @@ func parseAnthropicSSE(body io.ReadCloser, callback ai.StreamEventCallback, mode
 				bt := ai.TextContent{Type: "text", Text: textBuilder.String()}
 				msg.Content = append(msg.Content, ai.ContentBlock{Text: &bt})
 				callback(ai.StreamEvent{
-					Type:    "text_end",
+					Type:         "text_end",
 					ContentIndex: contentIndex,
 				})
 			case "tool_use":
@@ -617,15 +617,15 @@ func parseAnthropicSSE(body io.ReadCloser, callback ai.StreamEventCallback, mode
 				}
 				msg.Content = append(msg.Content, ai.ContentBlock{ToolCall: &tc})
 				callback(ai.StreamEvent{
-					Type:    "toolcall_end",
+					Type:         "toolcall_end",
 					ContentIndex: contentIndex,
-					ToolCall: &tc,
+					ToolCall:     &tc,
 				})
 			case "thinking":
 				bt := ai.ThinkingContent{Type: "thinking", Thinking: thinkingBuilder.String()}
 				msg.Content = append(msg.Content, ai.ContentBlock{Thinking: &bt})
 				callback(ai.StreamEvent{
-					Type:    "thinking_end",
+					Type:         "thinking_end",
 					ContentIndex: contentIndex,
 				})
 			}

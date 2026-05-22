@@ -67,13 +67,13 @@ func streamFaux(model ai.Model, ctx ai.Context, opts *FauxOptions, callback ai.S
 			tc.Type = "toolCall"
 			msg.Content = append(msg.Content, ai.ContentBlock{ToolCall: &tc})
 			callback(ai.StreamEvent{
-				Type:    "toolcall_start",
+				Type:         "toolcall_start",
 				ContentIndex: i,
 			})
 			callback(ai.StreamEvent{
-				Type:    "toolcall_end",
+				Type:         "toolcall_end",
 				ContentIndex: i,
-				ToolCall: &tc,
+				ToolCall:     &tc,
 			})
 			_ = i
 		}

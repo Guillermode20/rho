@@ -7,7 +7,7 @@ import (
 
 // Keybinding describes a single keybinding action.
 type Keybinding struct {
-	Key         KeyID `json:"key"`
+	Key         KeyID  `json:"key"`
 	Description string `json:"description"`
 	Category    string `json:"category,omitempty"`
 }
@@ -26,8 +26,8 @@ type KeybindingsConfig struct {
 
 // KeybindingsManager manages keybinding registrations and conflicts.
 type KeybindingsManager struct {
-	bindings    map[KeyID][]Keybinding
-	categories  map[string][]Keybinding
+	bindings   map[KeyID][]Keybinding
+	categories map[string][]Keybinding
 }
 
 // NewKeybindingsManager creates a new keybindings manager.
@@ -81,8 +81,8 @@ func (km *KeybindingsManager) Conflicts() []KeybindingConflict {
 	for key, kbs := range km.bindings {
 		if len(kbs) > 1 {
 			conflicts = append(conflicts, KeybindingConflict{
-				Key:         key,
-				Bindings:    kbs,
+				Key:      key,
+				Bindings: kbs,
 			})
 		}
 	}
@@ -91,7 +91,7 @@ func (km *KeybindingsManager) Conflicts() []KeybindingConflict {
 
 // KeybindingConflict describes conflicting keybindings.
 type KeybindingConflict struct {
-	Key      KeyID       `json:"key"`
+	Key      KeyID        `json:"key"`
 	Bindings []Keybinding `json:"bindings"`
 }
 

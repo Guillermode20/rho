@@ -11,8 +11,8 @@ func TestDefaultTokenEstimator(t *testing.T) {
 	}{
 		{"", 0},
 		{"a", 1},
-		{"hello", 2},        // 5/4+1 = 2
-		{"hello world", 3},  // 11/4+1 = 3
+		{"hello", 2},       // 5/4+1 = 2
+		{"hello world", 3}, // 11/4+1 = 3
 	}
 	for _, tt := range tests {
 		got := DefaultTokenEstimator(tt.text)

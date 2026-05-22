@@ -179,8 +179,6 @@ func IsSurrogate(r rune) bool {
 	return r >= 0xD800 && r <= 0xDFFF
 }
 
-
-
 // IsJSON returns true if the string looks like valid JSON.
 func IsJSON(s string) bool {
 	s = strings.TrimSpace(s)

@@ -89,12 +89,12 @@ func callOpenAIImageAPI(model ai.ImageModel, prompt string, n int, size, apiKey 
 	}
 
 	body := map[string]interface{}{
-		"model":   model.Name,
-		"prompt":  prompt,
-		"n":       n,
-		"size":    size,
-		"quality": quality,
-		"style":   style,
+		"model":           model.Name,
+		"prompt":          prompt,
+		"n":               n,
+		"size":            size,
+		"quality":         quality,
+		"style":           style,
 		"response_format": "b64_json",
 	}
 
@@ -121,7 +121,7 @@ func callOpenAIImageAPI(model ai.ImageModel, prompt string, n int, size, apiKey 
 	var result struct {
 		Created int64 `json:"created"`
 		Data    []struct {
-			B64JSON      string `json:"b64_json"`
+			B64JSON       string `json:"b64_json"`
 			RevisedPrompt string `json:"revised_prompt,omitempty"`
 		} `json:"data"`
 	}

@@ -244,11 +244,15 @@ func FormatTemplateWithArgs(tpl string, vars map[string]string, args []string) s
 	}
 
 	// Substitute $1, $2, ... $N individual positional args
-	// Replace in descending order so $10 is matched before $1
+	// Use regex with non-digit boundary to prevent $1 corrupting $10
 	for i := len(args) - 1; i >= 0; i-- {
 		arg := args[i]
 		marker := fmt.Sprintf("$%d", i+1)
-		result = strings.ReplaceAll(result, marker, arg)
+		markerRe := regexp.MustCompile(regexp.QuoteMeta(marker) + `(?:\D|$)`)
+		result = markerRe.ReplaceAllStringFunc(result, func(match string) string {
+			suffix := match[len(marker):]
+			return arg + suffix
+		})
 	}
 
 	// Clean up unresolved positional placeholders
@@ -273,5 +277,3 @@ func removeUnresolved(s string) string {
 	}
 	return result.String()
 }
-
-

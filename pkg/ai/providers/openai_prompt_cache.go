@@ -23,7 +23,7 @@ type CacheKeyConfig struct {
 type PromptCacheEntry struct {
 	Key      string `json:"key"`
 	Content  string `json:"content"`
-	Source   string `json:"source"` // "system", "tools", "messages"
+	Source   string `json:"source"`   // "system", "tools", "messages"
 	Position int    `json:"position"` // Order in the prompt
 }
 
@@ -110,11 +110,11 @@ func SessionAffinityHeader(sessionID string) map[string]string {
 func SendSessionAffinityHeaders(providerName string) bool {
 	// Providers known to support session affinity for prompt caching
 	supported := map[string]bool{
-		"openai":       true,
-		"azure":        true,
-		"fireworks":    true,
-		"together":     false,
-		"deepseek":     false,
+		"openai":    true,
+		"azure":     true,
+		"fireworks": true,
+		"together":  false,
+		"deepseek":  false,
 	}
 	// Default to false for unknown providers
 	return supported[strings.ToLower(providerName)]

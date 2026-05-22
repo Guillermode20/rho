@@ -28,9 +28,9 @@ type ToolInfo struct {
 
 // ToolsManager manages tool lifecycle: enable/disable, ordering, status.
 type ToolsManager struct {
-	mu      sync.RWMutex
-	tools   map[string]*ToolInfo
-	order   []string // ordered list of tool names
+	mu    sync.RWMutex
+	tools map[string]*ToolInfo
+	order []string // ordered list of tool names
 }
 
 // NewToolsManager creates a new tools manager.

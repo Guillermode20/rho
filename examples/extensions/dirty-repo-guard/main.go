@@ -5,7 +5,8 @@
 //
 // Build:  go build -o dirty-repo-guard ./examples/extensions/dirty-repo-guard/
 // Deploy: cp dirty-repo-guard ~/.rho/extensions/dirty-repo-guard/
-//         cp examples/extensions/dirty-repo-guard/rho.toml ~/.rho/extensions/dirty-repo-guard/
+//
+//	cp examples/extensions/dirty-repo-guard/rho.toml ~/.rho/extensions/dirty-repo-guard/
 package main
 
 import (

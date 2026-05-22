@@ -13,11 +13,11 @@ import (
 type CustomMessageType string
 
 const (
-	MsgTypeBashExecution        CustomMessageType = "bash_execution"
-	MsgTypeCompactionSummary    CustomMessageType = "compaction_summary"
-	MsgTypeBranchSummary        CustomMessageType = "branch_summary"
-	MsgTypeSkillInvocation      CustomMessageType = "skill_invocation"
-	MsgTypeCustomNotification   CustomMessageType = "custom_notification"
+	MsgTypeBashExecution      CustomMessageType = "bash_execution"
+	MsgTypeCompactionSummary  CustomMessageType = "compaction_summary"
+	MsgTypeBranchSummary      CustomMessageType = "branch_summary"
+	MsgTypeSkillInvocation    CustomMessageType = "skill_invocation"
+	MsgTypeCustomNotification CustomMessageType = "custom_notification"
 )
 
 // CreateBashExecutionMessage creates a bash execution message for the session.
@@ -35,10 +35,10 @@ func CreateBashExecutionMessage(command, output string, exitCode int, isError bo
 // CreateCompactionSummaryMessage creates a compaction summary message.
 func CreateCompactionSummaryMessage(summary string, tokensBefore int, fromHook bool) agent.AgentMessage {
 	return agent.AgentMessage{
-		Role:    ai.RoleAssistant,
-		Content: formatCompactionSummary(summary, tokensBefore),
-		Model:   "system",
-		Hide:    true,
+		Role:      ai.RoleAssistant,
+		Content:   formatCompactionSummary(summary, tokensBefore),
+		Model:     "system",
+		Hide:      true,
 		Timestamp: time.Now().UnixMilli(),
 	}
 }
@@ -53,10 +53,10 @@ func formatCompactionSummary(summary string, tokensBefore int) string {
 // CreateBranchSummaryMessage creates a branch summary message for display.
 func CreateBranchSummaryMessage(summary string, fromEntryID string) agent.AgentMessage {
 	return agent.AgentMessage{
-		Role:    ai.RoleAssistant,
-		Content: fmt.Sprintf("Branch resumed from a previous point.\n\n**Summary of previous context:**\n%s", summary),
-		Model:   "system",
-		Hide:    true,
+		Role:      ai.RoleAssistant,
+		Content:   fmt.Sprintf("Branch resumed from a previous point.\n\n**Summary of previous context:**\n%s", summary),
+		Model:     "system",
+		Hide:      true,
 		Timestamp: time.Now().UnixMilli(),
 	}
 }
@@ -68,8 +68,8 @@ func CreateSkillInvocationMessage(skillName, skillContent, additionalInstruction
 		content += "\n\nAdditional instructions:\n" + additionalInstructions
 	}
 	return agent.AgentMessage{
-		Role:    ai.RoleUser,
-		Content: content,
+		Role:      ai.RoleUser,
+		Content:   content,
 		Timestamp: time.Now().UnixMilli(),
 	}
 }
@@ -77,10 +77,10 @@ func CreateSkillInvocationMessage(skillName, skillContent, additionalInstruction
 // CreateCustomMessage creates a custom message with arbitrary type and content.
 func CreateCustomMessage(customType string, content string, details interface{}, display bool) agent.AgentMessage {
 	msg := agent.AgentMessage{
-		Role:    ai.RoleAssistant,
-		Content: content,
-		Model:   fmt.Sprintf("custom:%s", customType),
-		Hide:    !display,
+		Role:      ai.RoleAssistant,
+		Content:   content,
+		Model:     fmt.Sprintf("custom:%s", customType),
+		Hide:      !display,
 		Timestamp: time.Now().UnixMilli(),
 	}
 	return msg

@@ -5,12 +5,14 @@
 // with a generated prompt.
 //
 // Usage:
-//   /handoff "now implement this for teams as well"
-//   /handoff "execute phase one of the plan"
+//
+//	/handoff "now implement this for teams as well"
+//	/handoff "execute phase one of the plan"
 //
 // Build:  go build -o handoff ./examples/extensions/handoff/
 // Deploy: cp handoff ~/.rho/extensions/handoff/
-//         cp examples/extensions/handoff/rho.toml ~/.rho/extensions/handoff/
+//
+//	cp examples/extensions/handoff/rho.toml ~/.rho/extensions/handoff/
 package main
 
 import (

@@ -11,22 +11,22 @@ import (
 
 // ResponsesRequest represents the common request body for the Responses API.
 type ResponsesRequest struct {
-	Model           string                 `json:"model"`
-	Input           interface{}            `json:"input"`
-	Instructions    string                 `json:"instructions,omitempty"`
-	MaxOutputTokens int                    `json:"max_output_tokens,omitempty"`
-	Temperature     float64                `json:"temperature,omitempty"`
-	TopP            float64                `json:"top_p,omitempty"`
-	Stream          bool                   `json:"stream"`
-	Tools           []ResponsesTool        `json:"tools,omitempty"`
-	Metadata        map[string]string      `json:"metadata,omitempty"`
-	Store           bool                   `json:"store,omitempty"`
+	Model           string            `json:"model"`
+	Input           interface{}       `json:"input"`
+	Instructions    string            `json:"instructions,omitempty"`
+	MaxOutputTokens int               `json:"max_output_tokens,omitempty"`
+	Temperature     float64           `json:"temperature,omitempty"`
+	TopP            float64           `json:"top_p,omitempty"`
+	Stream          bool              `json:"stream"`
+	Tools           []ResponsesTool   `json:"tools,omitempty"`
+	Metadata        map[string]string `json:"metadata,omitempty"`
+	Store           bool              `json:"store,omitempty"`
 }
 
 // ResponsesTool represents a tool in the Responses API.
 type ResponsesTool struct {
-	Type     string          `json:"type"`
-	Name     string          `json:"name,omitempty"`
+	Type     string             `json:"type"`
+	Name     string             `json:"name,omitempty"`
 	Function *ResponsesFunction `json:"function,omitempty"`
 }
 
@@ -40,28 +40,28 @@ type ResponsesFunction struct {
 
 // ResponsesInputItem represents a single input item in the Responses API.
 type ResponsesInputItem struct {
-	Role       string                 `json:"role"`
-	Content    interface{}            `json:"content"`
-	Type       string                 `json:"type,omitempty"`
-	ID         string                 `json:"id,omitempty"`
-	ToolCallID string                 `json:"tool_call_id,omitempty"`
-	ToolName   string                 `json:"tool_name,omitempty"`
-	Output     []ResponsesOutputItem  `json:"output,omitempty"`
+	Role       string                `json:"role"`
+	Content    interface{}           `json:"content"`
+	Type       string                `json:"type,omitempty"`
+	ID         string                `json:"id,omitempty"`
+	ToolCallID string                `json:"tool_call_id,omitempty"`
+	ToolName   string                `json:"tool_name,omitempty"`
+	Output     []ResponsesOutputItem `json:"output,omitempty"`
 }
 
 // ResponsesOutputItem represents an output item from the model.
 type ResponsesOutputItem struct {
-	Type    string          `json:"type"`
-	ID      string          `json:"id,omitempty"`
-	Status  string          `json:"status,omitempty"`
+	Type    string             `json:"type"`
+	ID      string             `json:"id,omitempty"`
+	Status  string             `json:"status,omitempty"`
 	Content []ResponsesContent `json:"content,omitempty"`
 }
 
 // ResponsesContent represents a content block in Responses API output.
 type ResponsesContent struct {
-	Type     string `json:"type"`
-	Text     string `json:"text,omitempty"`
-	Refusal  string `json:"refusal,omitempty"`
+	Type       string                `json:"type"`
+	Text       string                `json:"text,omitempty"`
+	Refusal    string                `json:"refusal,omitempty"`
 	Annotation []ResponsesAnnotation `json:"annotation,omitempty"`
 }
 
@@ -89,7 +89,7 @@ type ResponsesStreamEvent struct {
 
 // ResponsesStreamDelta holds delta content during streaming.
 type ResponsesStreamDelta struct {
-	Text     string `json:"text,omitempty"`
+	Text      string `json:"text,omitempty"`
 	Reasoning string `json:"reasoning,omitempty"`
 }
 

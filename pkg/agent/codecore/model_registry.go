@@ -16,13 +16,13 @@ import (
 
 // ModelRegistry manages model lookup, registration, and metadata.
 type ModelRegistry struct {
-	mu      sync.RWMutex
-	models  []ai.Model
-	byName  map[string]ai.Model     // "provider/model" -> Model
-	byID    map[string]ai.Model     // model name only -> Model (first match)
-	byAPI   map[ai.API][]ai.Model   // API -> models
-	byProv  map[ai.Provider][]ai.Model // Provider -> models
-	authSt  ModelAuthProvider
+	mu     sync.RWMutex
+	models []ai.Model
+	byName map[string]ai.Model        // "provider/model" -> Model
+	byID   map[string]ai.Model        // model name only -> Model (first match)
+	byAPI  map[ai.API][]ai.Model      // API -> models
+	byProv map[ai.Provider][]ai.Model // Provider -> models
+	authSt ModelAuthProvider
 }
 
 // ModelAuthProvider resolves API keys for models.
@@ -186,12 +186,12 @@ func (r *ModelRegistry) GetModelsByAPI(api ai.API) []ai.Model {
 
 // ModelMetadata returns additional metadata for a model.
 type ModelMetadata struct {
-	ContextWindow    int                  `json:"contextWindow"`
-	MaxTokens        int                  `json:"maxTokens"`
-	SupportsThinking bool                 `json:"supportsThinking"`
-	ThinkingLevels   []ai.ThinkingLevel   `json:"thinkingLevels"`
-	InputTypes       []string             `json:"inputTypes"`
-	Cost             ai.CostPerMillion    `json:"cost"`
+	ContextWindow    int                `json:"contextWindow"`
+	MaxTokens        int                `json:"maxTokens"`
+	SupportsThinking bool               `json:"supportsThinking"`
+	ThinkingLevels   []ai.ThinkingLevel `json:"thinkingLevels"`
+	InputTypes       []string           `json:"inputTypes"`
+	Cost             ai.CostPerMillion  `json:"cost"`
 }
 
 // GetModelMetadata returns metadata for a model by looking it up in the definition list.
@@ -438,4 +438,3 @@ func (r *ModelRegistry) ResetProviderModels(provider ai.Provider) {
 	}
 	r.UpdateProviderModels(provider, models)
 }
-

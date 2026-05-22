@@ -5,7 +5,8 @@
 //
 // Build:  go build -o notify ./examples/extensions/notify/
 // Deploy: cp notify ~/.rho/extensions/notify/
-//         cp examples/extensions/notify/rho.toml ~/.rho/extensions/notify/
+//
+//	cp examples/extensions/notify/rho.toml ~/.rho/extensions/notify/
 package main
 
 import (

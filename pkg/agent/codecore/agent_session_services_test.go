@@ -14,10 +14,10 @@ func TestNewAgentSessionServices(t *testing.T) {
 	defer os.RemoveAll(tmpDir)
 
 	services, err := codecore.NewAgentSessionServices(codecore.CreateAgentSessionServicesOptions{
-		RhoDir:      tmpDir,
-		Model:       ai.Model{API: ai.APIAnthropicMessages, Provider: ai.ProviderAnthropic, Name: "claude-sonnet-4-20250514"},
+		RhoDir:       tmpDir,
+		Model:        ai.Model{API: ai.APIAnthropicMessages, Provider: ai.ProviderAnthropic, Name: "claude-sonnet-4-20250514"},
 		SystemPrompt: "You are a helpful assistant.",
-		CWD:         tmpDir,
+		CWD:          tmpDir,
 	})
 
 	if err != nil {
@@ -33,10 +33,10 @@ func TestAgentSessionServicesFields(t *testing.T) {
 	defer os.RemoveAll(tmpDir)
 
 	services, _ := codecore.NewAgentSessionServices(codecore.CreateAgentSessionServicesOptions{
-		RhoDir:      tmpDir,
-		Model:       ai.Model{API: ai.APIAnthropicMessages, Provider: ai.ProviderAnthropic, Name: "claude-sonnet-4-20250514"},
+		RhoDir:       tmpDir,
+		Model:        ai.Model{API: ai.APIAnthropicMessages, Provider: ai.ProviderAnthropic, Name: "claude-sonnet-4-20250514"},
 		SystemPrompt: "Test prompt",
-		CWD:         tmpDir,
+		CWD:          tmpDir,
 	})
 
 	if services.ModelReg == nil {
@@ -70,10 +70,10 @@ func TestAgentSessionServicesDirectories(t *testing.T) {
 	defer os.RemoveAll(tmpDir)
 
 	_, _ = codecore.NewAgentSessionServices(codecore.CreateAgentSessionServicesOptions{
-		RhoDir:      tmpDir,
-		Model:       ai.Model{API: ai.APIAnthropicMessages, Provider: ai.ProviderAnthropic, Name: "claude-sonnet-4-20250514"},
+		RhoDir:       tmpDir,
+		Model:        ai.Model{API: ai.APIAnthropicMessages, Provider: ai.ProviderAnthropic, Name: "claude-sonnet-4-20250514"},
 		SystemPrompt: "Test",
-		CWD:         tmpDir,
+		CWD:          tmpDir,
 	})
 
 	for _, d := range []string{

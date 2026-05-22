@@ -13,8 +13,8 @@ import (
 	"github.com/earendil-works/rho/pkg/agent/codecore"
 	"github.com/earendil-works/rho/pkg/agent/extensions"
 	agenttheme "github.com/earendil-works/rho/pkg/agent/theme"
-	"github.com/earendil-works/rho/pkg/ai"
 	"github.com/earendil-works/rho/pkg/agent/ui"
+	"github.com/earendil-works/rho/pkg/ai"
 	"github.com/earendil-works/rho/pkg/tui"
 )
 
@@ -71,8 +71,8 @@ func TestChatModelMouseWheelScrollsTranscript(t *testing.T) {
 		Button: tea.MouseButtonWheelUp,
 		Type:   tea.MouseWheelUp,
 	})
-	if model.Scroll != 3 {
-		t.Fatalf("scroll after wheel up = %d, want %d", model.Scroll, 3)
+	if model.Scroll != ui.MouseWheelScrollLines {
+		t.Fatalf("scroll after wheel up = %d, want %d", model.Scroll, ui.MouseWheelScrollLines)
 	}
 
 	model.Update(tea.MouseMsg{
@@ -1189,5 +1189,3 @@ func TestChatModelInfoModalScroll(t *testing.T) {
 		t.Fatalf("expected infoScroll to scroll up to 13 immediately, got %d", model.Modal.InfoScroll)
 	}
 }
-
-

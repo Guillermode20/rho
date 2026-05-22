@@ -5,7 +5,8 @@
 //
 // Build:  go build -o bookmark ./examples/extensions/bookmark/
 // Deploy: cp bookmark ~/.rho/extensions/bookmark/
-//         cp examples/extensions/bookmark/rho.toml ~/.rho/extensions/bookmark/
+//
+//	cp examples/extensions/bookmark/rho.toml ~/.rho/extensions/bookmark/
 package main
 
 import (
@@ -153,7 +154,7 @@ func main() {
 
 	ext.Tool("list_bookmarks", "List all bookmarks in the conversation.",
 		map[string]interface{}{
-			"type":     "object",
+			"type":       "object",
 			"properties": map[string]interface{}{},
 		},
 		func(ctx sdk.Context, args map[string]interface{}) (string, bool, error) {

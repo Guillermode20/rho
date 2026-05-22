@@ -15,17 +15,17 @@ func BuildBaseOptions(model ai.Model, options *ai.SimpleStreamOptions, apiKey st
 	}
 
 	base := &ai.StreamOptions{
-		Temperature:    options.Temperature,
-		MaxTokens:      options.MaxTokens,
-		APIKey:         apiKey,
-		Transport:      options.Transport,
-		CacheRetention: options.CacheRetention,
-		SessionID:      options.SessionID,
-		Headers:        options.Headers,
-		TimeoutMs:      options.TimeoutMs,
-		MaxRetries:     options.MaxRetries,
+		Temperature:     options.Temperature,
+		MaxTokens:       options.MaxTokens,
+		APIKey:          apiKey,
+		Transport:       options.Transport,
+		CacheRetention:  options.CacheRetention,
+		SessionID:       options.SessionID,
+		Headers:         options.Headers,
+		TimeoutMs:       options.TimeoutMs,
+		MaxRetries:      options.MaxRetries,
 		MaxRetryDelayMs: options.MaxRetryDelayMs,
-		Metadata:       options.Metadata,
+		Metadata:        options.Metadata,
 	}
 
 	// Use the provided API key if no explicit override

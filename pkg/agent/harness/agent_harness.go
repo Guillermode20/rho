@@ -11,14 +11,14 @@ import (
 
 // AgentHarness wraps the agent loop with session management, skills, and event hooks.
 type AgentHarness struct {
-	mu      sync.RWMutex
-	phase   AgentHarnessPhase
-	loop    *agent.AgentLoop
-	config  AgentHarnessConfig
+	mu     sync.RWMutex
+	phase  AgentHarnessPhase
+	loop   *agent.AgentLoop
+	config AgentHarnessConfig
 
 	// State
-	sessionID     string
-	turnIndex     int
+	sessionID      string
+	turnIndex      int
 	eventListeners map[string][]func(event interface{})
 
 	// Resources
@@ -32,25 +32,25 @@ type AgentHarness struct {
 
 // AgentHarnessConfig configures the AgentHarness.
 type AgentHarnessConfig struct {
-	Model           ai.Model            `json:"model"`
-	SystemPrompt    string              `json:"systemPrompt"`
-	APIKey          string              `json:"apiKey"`
-	MaxTokens       int                 `json:"maxTokens"`
-	Temperature     float64             `json:"temperature"`
-	ThinkingLevel   string              `json:"thinkingLevel"`
-	ToolExecMode    agent.ToolExecutionMode `json:"toolExecutionMode"`
-	StreamOptions   AgentHarnessStreamOptions `json:"streamOptions"`
-	Compaction      CompactionSettings   `json:"compaction"`
-	SessionFile     string              `json:"sessionFile,omitempty"`
+	Model         ai.Model                  `json:"model"`
+	SystemPrompt  string                    `json:"systemPrompt"`
+	APIKey        string                    `json:"apiKey"`
+	MaxTokens     int                       `json:"maxTokens"`
+	Temperature   float64                   `json:"temperature"`
+	ThinkingLevel string                    `json:"thinkingLevel"`
+	ToolExecMode  agent.ToolExecutionMode   `json:"toolExecutionMode"`
+	StreamOptions AgentHarnessStreamOptions `json:"streamOptions"`
+	Compaction    CompactionSettings        `json:"compaction"`
+	SessionFile   string                    `json:"sessionFile,omitempty"`
 }
 
 // NewAgentHarness creates a new AgentHarness.
 func NewAgentHarness(config AgentHarnessConfig) *AgentHarness {
 	return &AgentHarness{
-		phase:         PhaseIdle,
-		config:        config,
+		phase:          PhaseIdle,
+		config:         config,
 		eventListeners: make(map[string][]func(event interface{})),
-		streamOptions: config.StreamOptions,
+		streamOptions:  config.StreamOptions,
 	}
 }
 
@@ -114,12 +114,12 @@ func (h *AgentHarness) SetResources(skills []Skill, templates []PromptTemplate) 
 	h.mu.Unlock()
 
 	h.emit(EventResourcesUpdate, struct {
-		Type             string
-		Resources        AgentHarnessResources
+		Type              string
+		Resources         AgentHarnessResources
 		PreviousResources AgentHarnessResources
 	}{
-		Type:             EventResourcesUpdate,
-		Resources:        h.resources,
+		Type:              EventResourcesUpdate,
+		Resources:         h.resources,
 		PreviousResources: old,
 	})
 }

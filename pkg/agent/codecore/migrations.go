@@ -64,7 +64,9 @@ func migrateFile(path string) error {
 }
 
 func detectVersion(data []byte) int {
-	var h struct{ Version int `json:"version"` }
+	var h struct {
+		Version int `json:"version"`
+	}
 	if err := json.Unmarshal(data, &h); err != nil || h.Version == 0 {
 		return 1
 	}

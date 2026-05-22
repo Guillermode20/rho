@@ -5,7 +5,8 @@
 //
 // Build:  go build -o hidden-thinking-label ./examples/extensions/hidden-thinking-label/
 // Deploy: cp hidden-thinking-label ~/.rho/extensions/hidden-thinking-label/
-//         cp examples/extensions/hidden-thinking-label/rho.toml ~/.rho/extensions/hidden-thinking-label/
+//
+//	cp examples/extensions/hidden-thinking-label/rho.toml ~/.rho/extensions/hidden-thinking-label/
 package main
 
 import (
@@ -83,7 +84,7 @@ func main() {
 
 	ext.Tool("clear_thinking", "Clear the thinking/running indicator from the UI status.",
 		map[string]interface{}{
-			"type":     "object",
+			"type":       "object",
 			"properties": map[string]interface{}{},
 		},
 		func(ctx sdk.Context, args map[string]interface{}) (string, bool, error) {

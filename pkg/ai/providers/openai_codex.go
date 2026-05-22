@@ -138,7 +138,10 @@ func parseCodexStream(body io.ReadCloser, callback ai.StreamEventCallback, model
 	msg.Timestamp = time.Now().UnixMilli()
 
 	var contentBuilder, reasoningBuilder strings.Builder
-	toolCallBuilders := make(map[int]*struct{ id, name string; args strings.Builder })
+	toolCallBuilders := make(map[int]*struct {
+		id, name string
+		args     strings.Builder
+	})
 
 	for scanner.Scan() {
 		line := scanner.Text()
@@ -169,7 +172,10 @@ func parseCodexStream(body io.ReadCloser, callback ai.StreamEventCallback, model
 			for _, tc := range choice.Delta.ToolCalls {
 				b, ok := toolCallBuilders[tc.Index]
 				if !ok {
-					b = &struct{ id, name string; args strings.Builder }{}
+					b = &struct {
+						id, name string
+						args     strings.Builder
+					}{}
 					toolCallBuilders[tc.Index] = b
 				}
 				if tc.ID != "" {

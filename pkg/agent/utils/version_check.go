@@ -94,5 +94,3 @@ func CheckForUpdates(currentVersion, repoOwner, repoName string) string {
 	}
 	return ""
 }
-
-

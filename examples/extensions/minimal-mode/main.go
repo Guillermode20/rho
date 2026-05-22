@@ -5,7 +5,8 @@
 //
 // Build:  go build -o minimal-mode ./examples/extensions/minimal-mode/
 // Deploy: cp minimal-mode ~/.rho/extensions/minimal-mode/
-//         cp examples/extensions/minimal-mode/rho.toml ~/.rho/extensions/minimal-mode/
+//
+//	cp examples/extensions/minimal-mode/rho.toml ~/.rho/extensions/minimal-mode/
 package main
 
 import (

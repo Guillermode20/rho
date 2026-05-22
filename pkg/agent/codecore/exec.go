@@ -172,4 +172,3 @@ func GetShellEnv(extraPaths ...string) []string {
 
 	return env
 }
-

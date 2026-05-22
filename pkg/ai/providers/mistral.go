@@ -156,9 +156,9 @@ func buildMistralMessages(ctx ai.Context) []map[string]interface{} {
 				content = tr.Content[0].Text.Text
 			}
 			messages = append(messages, map[string]interface{}{
-				"role":        "tool",
+				"role":         "tool",
 				"tool_call_id": tr.ToolCallID,
-				"content":     content,
+				"content":      content,
 			})
 		}
 	}
@@ -171,8 +171,8 @@ type mistralChunk struct {
 	Created int64  `json:"created"`
 	Model   string `json:"model"`
 	Choices []struct {
-		Index        int    `json:"index"`
-		Delta        struct {
+		Index int `json:"index"`
+		Delta struct {
 			Role      string `json:"role"`
 			Content   string `json:"content"`
 			ToolCalls []struct {

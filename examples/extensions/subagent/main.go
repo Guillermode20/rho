@@ -6,7 +6,8 @@
 //
 // Build:  go build -o subagent ./examples/extensions/subagent/
 // Deploy: cp subagent ~/.rho/extensions/subagent/
-//         cp examples/extensions/subagent/rho.toml ~/.rho/extensions/subagent/
+//
+//	cp examples/extensions/subagent/rho.toml ~/.rho/extensions/subagent/
 package main
 
 import (
@@ -36,9 +37,9 @@ type subagentTask struct {
 }
 
 var (
-	tasks     []*subagentTask
-	tasksMu   sync.Mutex
-	nextID    atomic.Uint64
+	tasks   []*subagentTask
+	tasksMu sync.Mutex
+	nextID  atomic.Uint64
 )
 
 func main() {

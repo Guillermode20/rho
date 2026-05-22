@@ -46,7 +46,7 @@ var editDiffParams = map[string]interface{}{
 						"description": "Replacement text for this targeted edit.",
 					},
 				},
-				"required": []interface{}{"oldText", "newText"},
+				"required":             []interface{}{"oldText", "newText"},
 				"additionalProperties": false,
 			},
 		},
@@ -343,10 +343,10 @@ func normalizeForFuzzyWithMapping(text string) (string, []int) {
 		for byteOffsetInLine, r := range trimmedLine {
 			mappedRune, _ := fuzzyMapRune(r)
 			normalized.WriteRune(mappedRune)
-			
+
 			runeBuf := [utf8.UTFMax]byte{}
 			n := utf8.EncodeRune(runeBuf[:], mappedRune)
-			
+
 			origByteOffset := lineStartOffset + byteOffsetInLine
 			for i := 0; i < n; i++ {
 				mapping = append(mapping, origByteOffset)
@@ -527,7 +527,7 @@ func getNoChangeError(path string, totalEdits int) error {
 // ============================================================================
 
 type diffResult struct {
-	diff            string
+	diff             string
 	firstChangedLine *int
 }
 
@@ -667,7 +667,7 @@ func generateDiffString(oldContent, newContent string, contextLines int) diffRes
 	}
 
 	return diffResult{
-		diff:            strings.TrimRight(buf.String(), "\n"),
+		diff:             strings.TrimRight(buf.String(), "\n"),
 		firstChangedLine: firstChangedLine,
 	}
 }
@@ -816,5 +816,3 @@ func ComputeEditsDiff(path, cwd string, edits []editDef) (*diffResult, error) {
 	diffRes := generateDiffString(result.baseContent, result.newContent, 4)
 	return &diffRes, nil
 }
-
-

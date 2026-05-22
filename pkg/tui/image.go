@@ -13,7 +13,7 @@ import (
 type ImageProtocol int
 
 const (
-	ImageProtocolKitty  ImageProtocol = iota
+	ImageProtocolKitty ImageProtocol = iota
 	ImageProtocolITerm2
 )
 

@@ -42,11 +42,11 @@ type StreamEvent struct {
 // EventStream is a channel-based async event stream.
 // Producers push events, consumers iterate via Channel().
 type EventStream struct {
-	ch       chan StreamEvent
-	done     chan struct{}
-	closed   atomic.Bool
-	mu       sync.Mutex
-	onClose  []func()
+	ch      chan StreamEvent
+	done    chan struct{}
+	closed  atomic.Bool
+	mu      sync.Mutex
+	onClose []func()
 }
 
 // NewEventStream creates a buffered event stream.

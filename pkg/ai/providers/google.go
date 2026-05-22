@@ -86,7 +86,7 @@ func streamGoogleGenAI(model ai.Model, ctx ai.Context, opts *GoogleOptions, call
 
 func buildGoogleRequest(model ai.Model, ctx ai.Context, opts *GoogleOptions) map[string]interface{} {
 	body := map[string]interface{}{
-		"contents": buildGoogleContents(ctx),
+		"contents":         buildGoogleContents(ctx),
 		"generationConfig": map[string]interface{}{},
 	}
 
@@ -190,8 +190,8 @@ func buildGoogleContents(ctx ai.Context) []map[string]interface{} {
 // Google SSE response types
 type googleResponse struct {
 	Candidates []struct {
-		Index          int `json:"index"`
-		Content        struct {
+		Index   int `json:"index"`
+		Content struct {
 			Parts []struct {
 				Text         string `json:"text"`
 				FunctionCall *struct {
@@ -271,7 +271,7 @@ func parseGoogleSSE(body io.ReadCloser, callback ai.StreamEventCallback, model a
 						ToolCall: &tc,
 					})
 					callback(ai.StreamEvent{
-						Type:    "toolcall_end",
+						Type:     "toolcall_end",
 						ToolCall: &tc,
 					})
 				}

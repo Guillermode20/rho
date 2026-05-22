@@ -8,18 +8,18 @@ import (
 
 // MarkdownTheme defines styling for Markdown rendering.
 type MarkdownTheme struct {
-	H1          func(text string) string
-	H2          func(text string) string
-	H3          func(text string) string
-	Bold        func(text string) string
-	Italic      func(text string) string
-	Code        func(text string) string
-	CodeBlock   func(text string) string
-	Link        func(text, url string) string
-	Blockquote  func(text string) string
-	ListBullet  func(text string) string
-	ListNumber  func(text string) string
-	Horizontal  func() string
+	H1         func(text string) string
+	H2         func(text string) string
+	H3         func(text string) string
+	Bold       func(text string) string
+	Italic     func(text string) string
+	Code       func(text string) string
+	CodeBlock  func(text string) string
+	Link       func(text, url string) string
+	Blockquote func(text string) string
+	ListBullet func(text string) string
+	ListNumber func(text string) string
+	Horizontal func() string
 }
 
 // DefaultMarkdownTheme returns a markdown theme using the design system palette.
@@ -28,20 +28,20 @@ func DefaultMarkdownTheme() MarkdownTheme {
 	reset := th.Reset()
 	bold := th.ansi.bold
 	dim := th.ansi.dim
-	fg75 := th.ansi.fg(Color{ANSI: 75})  // accent blue for headings
+	fg75 := th.ansi.fg(Color{ANSI: 75})   // accent blue for headings
 	fg120 := th.ansi.fg(Color{ANSI: 120}) // green for code
 	fg221 := th.ansi.fg(Color{ANSI: 221}) // amber for inline code
 	fg242 := th.ansi.fg(Color{ANSI: 242}) // dim gray for metadata
 
 	return MarkdownTheme{
-		H1: func(text string) string { return bold + fg75 + text + reset },
-		H2: func(text string) string { return bold + fg75 + text + reset },
-		H3: func(text string) string { return bold + fg75 + text + reset },
-		Bold: func(text string) string { return bold + text + reset },
-		Italic: func(text string) string { return dim + text + reset },
-		Code: func(text string) string { return fg221 + text + reset },
-		CodeBlock: func(text string) string { return fg120 + text + reset },
-		Link: func(text, url string) string { return fg75 + text + reset + fg242 + " (" + url + ")" + reset },
+		H1:         func(text string) string { return bold + fg75 + text + reset },
+		H2:         func(text string) string { return bold + fg75 + text + reset },
+		H3:         func(text string) string { return bold + fg75 + text + reset },
+		Bold:       func(text string) string { return bold + text + reset },
+		Italic:     func(text string) string { return dim + text + reset },
+		Code:       func(text string) string { return fg221 + text + reset },
+		CodeBlock:  func(text string) string { return fg120 + text + reset },
+		Link:       func(text, url string) string { return fg75 + text + reset + fg242 + " (" + url + ")" + reset },
 		Blockquote: func(text string) string { return dim + "▎" + text + reset },
 		ListBullet: func(text string) string { return "• " + text },
 		ListNumber: func(text string) string { return text },
@@ -73,8 +73,8 @@ func (m *Markdown) Render(width int) []string {
 }
 
 func (m *Markdown) HandleInput(data string) {}
-func (m *Markdown) Invalidate()            {}
-func (m *Markdown) WantsKeyRelease() bool  { return false }
+func (m *Markdown) Invalidate()             {}
+func (m *Markdown) WantsKeyRelease() bool   { return false }
 
 // renderMarkdown converts markdown text to rendered terminal lines.
 func (m *Markdown) renderMarkdown(text string, width int) []string {
@@ -276,8 +276,8 @@ func splitMarkdownBlocks(text string) []mdBlock {
 
 // Inline rendering patterns
 var (
-	boldRe      = regexp.MustCompile(`\*\*(.+?)\*\*`)
-	italicRe    = regexp.MustCompile(`\*(.+?)\*`)
+	boldRe       = regexp.MustCompile(`\*\*(.+?)\*\*`)
+	italicRe     = regexp.MustCompile(`\*(.+?)\*`)
 	codeInlineRe = regexp.MustCompile("`(.+?)`")
 	linkRe       = regexp.MustCompile(`\[([^\]]+)\]\(([^)]+)\)`)
 )

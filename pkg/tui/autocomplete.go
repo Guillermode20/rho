@@ -107,5 +107,3 @@ func fuzzyScore(query, target []rune) float64 {
 
 	return score
 }
-
-

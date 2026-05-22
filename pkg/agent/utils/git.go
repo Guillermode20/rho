@@ -146,10 +146,10 @@ func GitLog(dir string, count int) string {
 
 // GitCheckpointer auto-commits changes before agent actions.
 type GitCheckpointer struct {
-	dir       string
-	branch    string
-	autoPush  bool
-	mu        sync.Mutex
+	dir             string
+	branch          string
+	autoPush        bool
+	mu              sync.Mutex
 	checkpointCount int
 }
 

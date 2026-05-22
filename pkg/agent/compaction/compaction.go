@@ -56,11 +56,11 @@ func EstimateContextTokens(messages []Message) int {
 
 // Message is a minimal message interface for compaction.
 type Message struct {
-	Role      string   `json:"role"`
-	Content   string   `json:"content"`
+	Role      string     `json:"role"`
+	Content   string     `json:"content"`
 	ToolCalls []ToolCall `json:"toolCalls,omitempty"`
-	ToolName  string   `json:"toolName,omitempty"`
-	Hide      bool     `json:"hide,omitempty"`
+	ToolName  string     `json:"toolName,omitempty"`
+	Hide      bool       `json:"hide,omitempty"`
 }
 
 // ToolCall represents a tool call.
@@ -282,5 +282,3 @@ func (c *Compacter) ShouldCompactWith(messages []Message, contextWindow int) boo
 	threshold := int(float64(contextWindow) * c.settings.TriggerRatio)
 	return total >= threshold
 }
-
-

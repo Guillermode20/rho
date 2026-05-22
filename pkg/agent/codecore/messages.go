@@ -119,10 +119,10 @@ type CompactionSummaryMessage struct {
 
 // BranchSummaryMessage represents a branch summary in a session.
 type BranchSummaryMessage struct {
-	FromID      string `json:"fromId"`
-	Summary     string `json:"summary"`
-	EntryCount  int    `json:"entryCount"`
-	Label       string `json:"label,omitempty"`
+	FromID     string `json:"fromId"`
+	Summary    string `json:"summary"`
+	EntryCount int    `json:"entryCount"`
+	Label      string `json:"label,omitempty"`
 }
 
 // CreateCustomMessage creates a custom message from extension data.

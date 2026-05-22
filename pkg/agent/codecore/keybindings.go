@@ -66,8 +66,8 @@ func DefaultKeybindings() []AppKeybinding {
 
 // KeybindingsConfig represents a keybindings configuration file.
 type KeybindingsConfig struct {
-	Version     int                    `json:"version"`
-	Keybindings []KeybindingOverride   `json:"keybindings"`
+	Version     int                  `json:"version"`
+	Keybindings []KeybindingOverride `json:"keybindings"`
 }
 
 // KeybindingOverride overrides a keybinding.
@@ -78,11 +78,11 @@ type KeybindingOverride struct {
 
 // KeybindingsManager manages keybinding resolution with overrides.
 type KeybindingsManager struct {
-	mu         sync.RWMutex
-	bindings   map[string]*AppKeybinding // ID -> binding (with current key)
-	defaults   map[string]*AppKeybinding // ID -> default binding
-	byKey      map[string][]*AppKeybinding // key -> bindings (for conflict detection)
-	overrides  map[string]string          // ID -> overridden key
+	mu        sync.RWMutex
+	bindings  map[string]*AppKeybinding   // ID -> binding (with current key)
+	defaults  map[string]*AppKeybinding   // ID -> default binding
+	byKey     map[string][]*AppKeybinding // key -> bindings (for conflict detection)
+	overrides map[string]string           // ID -> overridden key
 }
 
 // NewKeybindingsManager creates a new KeybindingsManager.
@@ -197,8 +197,8 @@ func (km *KeybindingsManager) GetConflicts() []KeybindingConflict {
 	for key, bindings := range km.byKey {
 		if len(bindings) > 1 {
 			conflicts = append(conflicts, KeybindingConflict{
-				Key:       tui.KeyID(key),
-				Bindings:  bindings,
+				Key:      tui.KeyID(key),
+				Bindings: bindings,
 			})
 		}
 	}

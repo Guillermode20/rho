@@ -208,9 +208,9 @@ func findChildProcesses(pid int) []int {
 
 // TrackedProcessManager tracks spawned processes for lifecycle management.
 type TrackedProcessManager struct {
-	mu      sync.Mutex
-	procs   map[int]*os.Process
-	nextID  int
+	mu     sync.Mutex
+	procs  map[int]*os.Process
+	nextID int
 }
 
 // NewTrackedProcessManager creates a new process manager.

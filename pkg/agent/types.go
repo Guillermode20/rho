@@ -101,16 +101,16 @@ type AgentEventCallback func(event AgentEvent) error
 
 // AgentLoopConfig configures the agent loop.
 type AgentLoopConfig struct {
-	Model                ai.Model          `json:"model"`
-	SystemPrompt         string            `json:"systemPrompt,omitempty"`
-	MaxTokens            int               `json:"maxTokens,omitempty"`
-	Temperature          float64           `json:"temperature,omitempty"`
-	ThinkingLevel        ai.ThinkingLevel  `json:"thinkingLevel,omitempty"`
-	ToolExecutionMode    ToolExecutionMode `json:"toolExecutionMode,omitempty"`
-	APIKey               string            `json:"apiKey,omitempty"`
-	MaxRetries           int               `json:"maxRetries,omitempty"`
-	Signal               context.Context   `json:"-"`
-	BeforeProviderRequest func(ctx ai.Context) (ai.Context, error) `json:"-"`
+	Model                 ai.Model                                              `json:"model"`
+	SystemPrompt          string                                                `json:"systemPrompt,omitempty"`
+	MaxTokens             int                                                   `json:"maxTokens,omitempty"`
+	Temperature           float64                                               `json:"temperature,omitempty"`
+	ThinkingLevel         ai.ThinkingLevel                                      `json:"thinkingLevel,omitempty"`
+	ToolExecutionMode     ToolExecutionMode                                     `json:"toolExecutionMode,omitempty"`
+	APIKey                string                                                `json:"apiKey,omitempty"`
+	MaxRetries            int                                                   `json:"maxRetries,omitempty"`
+	Signal                context.Context                                       `json:"-"`
+	BeforeProviderRequest func(ctx ai.Context) (ai.Context, error)              `json:"-"`
 	CompactFn             func(messages []AgentMessage) ([]AgentMessage, error) `json:"-"`
 }
 

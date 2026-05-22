@@ -5,7 +5,8 @@
 //
 // Build:  go build -o permission-gate ./examples/extensions/permission-gate/
 // Deploy: cp permission-gate ~/.rho/extensions/permission-gate/
-//         cp examples/extensions/permission-gate/rho.toml ~/.rho/extensions/permission-gate/
+//
+//	cp examples/extensions/permission-gate/rho.toml ~/.rho/extensions/permission-gate/
 package main
 
 import (
@@ -21,11 +22,11 @@ var dangerousPatterns = []*regexp.Regexp{
 	regexp.MustCompile(`\bsudo\b`),
 	regexp.MustCompile(`\b(chmod|chown)\b.*777`),
 	regexp.MustCompile(`\bdd\s+if=`),
-	regexp.MustCompile(`\b:\(\)\s*\{`),             // fork bomb
-	regexp.MustCompile(`\bmv\s+/`),                  // moving root or system dirs
-	regexp.MustCompile(`\b>\/dev\/sda`),              // writing directly to block devices
-	regexp.MustCompile(`\bformat\s+[a-z]:\\`),       // Windows format
-	regexp.MustCompile(`\bmkfs\.`),                  // creating filesystems
+	regexp.MustCompile(`\b:\(\)\s*\{`),        // fork bomb
+	regexp.MustCompile(`\bmv\s+/`),            // moving root or system dirs
+	regexp.MustCompile(`\b>\/dev\/sda`),       // writing directly to block devices
+	regexp.MustCompile(`\bformat\s+[a-z]:\\`), // Windows format
+	regexp.MustCompile(`\bmkfs\.`),            // creating filesystems
 }
 
 func main() {

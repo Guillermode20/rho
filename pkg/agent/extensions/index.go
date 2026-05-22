@@ -12,18 +12,18 @@
 //
 // Architecture:
 //
-//   Runtime            Manages extensions and dispatches events
-//   ExtensionDef       Defines an extension's handlers and registered items
-//   ExtensionContext   Context passed to all handlers (UI, CWD, abort, etc.)
-//   EventBus           Inter-extension communication
+//	Runtime            Manages extensions and dispatches events
+//	ExtensionDef       Defines an extension's handlers and registered items
+//	ExtensionContext   Context passed to all handlers (UI, CWD, abort, etc.)
+//	EventBus           Inter-extension communication
 //
 // Event flow:
 //
-//   User Input → OnInput → OnBeforeAgentStart → OnContext →
-//   FireToolCall → Tool executes → FireToolResult →
-//   OnTurnEnd → OnAgentEnd
+//	User Input → OnInput → OnBeforeAgentStart → OnContext →
+//	FireToolCall → Tool executes → FireToolResult →
+//	OnTurnEnd → OnAgentEnd
 //
 // Examples:
 //
-//   See ../../examples/extensions/example-extension.go
+//	See ../../examples/extensions/example-extension.go
 package extensions

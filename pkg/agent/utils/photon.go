@@ -23,13 +23,13 @@ func (p *PhotonWASM) IsAvailable() bool {
 type Filter string
 
 const (
-	FilterGrayscale    Filter = "grayscale"
-	FilterSepia        Filter = "sepia"
-	FilterInvert       Filter = "invert"
-	FilterBrightness   Filter = "brightness"
-	FilterContrast     Filter = "contrast"
-	FilterBlur         Filter = "blur"
-	FilterSharpen      Filter = "sharpen"
+	FilterGrayscale  Filter = "grayscale"
+	FilterSepia      Filter = "sepia"
+	FilterInvert     Filter = "invert"
+	FilterBrightness Filter = "brightness"
+	FilterContrast   Filter = "contrast"
+	FilterBlur       Filter = "blur"
+	FilterSharpen    Filter = "sharpen"
 )
 
 // ApplyFilter applies a filter to image data.

@@ -182,4 +182,3 @@ func TestInput_Submit(t *testing.T) {
 		t.Errorf("expected 'hello', got '%s'", submitted)
 	}
 }
-

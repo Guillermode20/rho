@@ -21,9 +21,9 @@ const (
 
 // SettingValue holds a typed setting value.
 type SettingValue struct {
-	Value   interface{}   `json:"value"`
-	Scope   SettingsScope `json:"scope"`
-	Source  string        `json:"source,omitempty"`
+	Value  interface{}   `json:"value"`
+	Scope  SettingsScope `json:"scope"`
+	Source string        `json:"source,omitempty"`
 }
 
 // SettingsManager manages configuration with scoped overrides.
@@ -46,10 +46,10 @@ type SettingsError struct {
 // NewSettingsManager creates a new settings manager with default values.
 func NewSettingsManager(configDir string) *SettingsManager {
 	sm := &SettingsManager{
-		configDir:   configDir,
-		values:      make(map[string]interface{}),
-		defaults:    make(map[string]interface{}),
-		scoped:      make(map[string]SettingsScope),
+		configDir: configDir,
+		values:    make(map[string]interface{}),
+		defaults:  make(map[string]interface{}),
+		scoped:    make(map[string]SettingsScope),
 	}
 
 	// Set defaults
@@ -62,25 +62,25 @@ func NewSettingsManager(configDir string) *SettingsManager {
 func (sm *SettingsManager) SetDefaults() {
 	sm.defaults = map[string]interface{}{
 		// Model settings
-		"model":               "",
-		"provider":            "",
-		"maxTokens":           8192,
-		"temperature":         0.7,
-		"thinkingLevel":       "off",
+		"model":         "",
+		"provider":      "",
+		"maxTokens":     8192,
+		"temperature":   0.7,
+		"thinkingLevel": "off",
 
 		// UI settings
-		"theme":               "default",
-		"showImages":          true,
-		"hardwareCursor":      false,
-		"clearOnShrink":       true,
-		"showLineNumbers":     true,
+		"theme":           "default",
+		"showImages":      true,
+		"hardwareCursor":  false,
+		"clearOnShrink":   true,
+		"showLineNumbers": true,
 
 		// Tool settings
-		"autoResizeImages":    true,
-		"maxReadBytes":        50000,
-		"maxReadLines":        2000,
-		"maxBashOutput":       100000,
-		"bashTimeout":         0,
+		"autoResizeImages": true,
+		"maxReadBytes":     50000,
+		"maxReadLines":     2000,
+		"maxBashOutput":    100000,
+		"bashTimeout":      0,
 
 		// Session settings
 		"autoSave":            true,
@@ -90,12 +90,12 @@ func (sm *SettingsManager) SetDefaults() {
 		"sessionMaxAge":       "30d",
 
 		// Extension settings
-		"extensionsDir":       "",
-		"autoLoadExtensions":  true,
+		"extensionsDir":      "",
+		"autoLoadExtensions": true,
 
 		// Feature flags
-		"kittyProtocol":       true,
-		"modifyOtherKeys":     true,
+		"kittyProtocol":   true,
+		"modifyOtherKeys": true,
 	}
 
 	// Copy defaults to values
@@ -178,14 +178,14 @@ func (sm *SettingsManager) loadFile(path string, scope SettingsScope) error {
 // loadEnvironment loads settings from environment variables.
 func (sm *SettingsManager) loadEnvironment() {
 	envMappings := map[string]string{
-		"RHO_MODEL":                "model",
-		"RHO_PROVIDER":             "provider",
-		"RHO_API_KEY":              "apiKey",
-		"RHO_TEMPERATURE":          "temperature",
-		"RHO_MAX_TOKENS":           "maxTokens",
-		"RHO_THEME":                "theme",
-		"RHO_EXTENSIONS_DIR":       "extensionsDir",
-		"RHO_BASH_TIMEOUT":         "bashTimeout",
+		"RHO_MODEL":          "model",
+		"RHO_PROVIDER":       "provider",
+		"RHO_API_KEY":        "apiKey",
+		"RHO_TEMPERATURE":    "temperature",
+		"RHO_MAX_TOKENS":     "maxTokens",
+		"RHO_THEME":          "theme",
+		"RHO_EXTENSIONS_DIR": "extensionsDir",
+		"RHO_BASH_TIMEOUT":   "bashTimeout",
 	}
 
 	for envKey, settingKey := range envMappings {

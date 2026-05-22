@@ -46,14 +46,14 @@ func Must[TValue any, TError any](r Result[TValue, TError]) TValue {
 type FileErrorCode string
 
 const (
-	FileErrAborted         FileErrorCode = "aborted"
-	FileErrNotFound        FileErrorCode = "not_found"
-	FileErrPermission      FileErrorCode = "permission_denied"
-	FileErrNotDir          FileErrorCode = "not_directory"
-	FileErrIsDir           FileErrorCode = "is_directory"
-	FileErrInvalid         FileErrorCode = "invalid"
-	FileErrNotSupported    FileErrorCode = "not_supported"
-	FileErrUnknown         FileErrorCode = "unknown"
+	FileErrAborted      FileErrorCode = "aborted"
+	FileErrNotFound     FileErrorCode = "not_found"
+	FileErrPermission   FileErrorCode = "permission_denied"
+	FileErrNotDir       FileErrorCode = "not_directory"
+	FileErrIsDir        FileErrorCode = "is_directory"
+	FileErrInvalid      FileErrorCode = "invalid"
+	FileErrNotSupported FileErrorCode = "not_supported"
+	FileErrUnknown      FileErrorCode = "unknown"
 )
 
 // FileError represents a filesystem error.
@@ -81,12 +81,12 @@ func NewFileError(code FileErrorCode, message string, path string, cause error) 
 type ExecutionErrorCode string
 
 const (
-	ExecErrAborted        ExecutionErrorCode = "aborted"
-	ExecErrTimeout        ExecutionErrorCode = "timeout"
-	ExecErrShellUnavail   ExecutionErrorCode = "shell_unavailable"
-	ExecErrSpawn          ExecutionErrorCode = "spawn_error"
-	ExecErrCallback       ExecutionErrorCode = "callback_error"
-	ExecErrUnknown        ExecutionErrorCode = "unknown"
+	ExecErrAborted      ExecutionErrorCode = "aborted"
+	ExecErrTimeout      ExecutionErrorCode = "timeout"
+	ExecErrShellUnavail ExecutionErrorCode = "shell_unavailable"
+	ExecErrSpawn        ExecutionErrorCode = "spawn_error"
+	ExecErrCallback     ExecutionErrorCode = "callback_error"
+	ExecErrUnknown      ExecutionErrorCode = "unknown"
 )
 
 // ExecutionError represents a command execution error.
@@ -104,10 +104,10 @@ func (e *ExecutionError) Unwrap() error { return e.Err }
 type CompactionErrorCode string
 
 const (
-	CompErrAborted         CompactionErrorCode = "aborted"
-	CompErrSummarization   CompactionErrorCode = "summarization_failed"
-	CompErrInvalidSession  CompactionErrorCode = "invalid_session"
-	CompErrUnknown         CompactionErrorCode = "unknown"
+	CompErrAborted        CompactionErrorCode = "aborted"
+	CompErrSummarization  CompactionErrorCode = "summarization_failed"
+	CompErrInvalidSession CompactionErrorCode = "invalid_session"
+	CompErrUnknown        CompactionErrorCode = "unknown"
 )
 
 // CompactionError represents a compaction error.
@@ -125,8 +125,8 @@ func (e *CompactionError) Unwrap() error { return e.Err }
 type BranchSummaryErrorCode string
 
 const (
-	BranchErrAborted       BranchSummaryErrorCode = "aborted"
-	BranchErrSummarization BranchSummaryErrorCode = "summarization_failed"
+	BranchErrAborted        BranchSummaryErrorCode = "aborted"
+	BranchErrSummarization  BranchSummaryErrorCode = "summarization_failed"
 	BranchErrInvalidSession BranchSummaryErrorCode = "invalid_session"
 )
 
@@ -145,12 +145,12 @@ func (e *BranchSummaryError) Unwrap() error { return e.Err }
 type SessionErrorCode string
 
 const (
-	SessionErrNotFound       SessionErrorCode = "not_found"
-	SessionErrInvalid        SessionErrorCode = "invalid_session"
-	SessionErrInvalidEntry   SessionErrorCode = "invalid_entry"
-	SessionErrInvalidFork    SessionErrorCode = "invalid_fork_target"
-	SessionErrStorage        SessionErrorCode = "storage"
-	SessionErrUnknown        SessionErrorCode = "unknown"
+	SessionErrNotFound     SessionErrorCode = "not_found"
+	SessionErrInvalid      SessionErrorCode = "invalid_session"
+	SessionErrInvalidEntry SessionErrorCode = "invalid_entry"
+	SessionErrInvalidFork  SessionErrorCode = "invalid_fork_target"
+	SessionErrStorage      SessionErrorCode = "storage"
+	SessionErrUnknown      SessionErrorCode = "unknown"
 )
 
 // SessionError represents a session error.
@@ -237,7 +237,7 @@ type FileSystem interface {
 type ExecutionEnvExecOptions struct {
 	CWD         string
 	Env         map[string]string
-	Timeout     int  // seconds
+	Timeout     int // seconds
 	AbortSignal chan struct{}
 	OnStdout    func(chunk string)
 	OnStderr    func(chunk string)
@@ -268,19 +268,19 @@ type ExecutionEnv interface {
 
 // Skill defines a loaded skill from a SKILL.md file.
 type Skill struct {
-	Name                  string `json:"name"`
-	Description           string `json:"description"`
-	Content               string `json:"content"`
-	FilePath              string `json:"filePath"`
-	DisableModelInvocation bool  `json:"disableModelInvocation,omitempty"`
+	Name                   string `json:"name"`
+	Description            string `json:"description"`
+	Content                string `json:"content"`
+	FilePath               string `json:"filePath"`
+	DisableModelInvocation bool   `json:"disableModelInvocation,omitempty"`
 }
 
 // SkillFrontmatter is the YAML frontmatter of a skill file.
 type SkillFrontmatter struct {
-	Name                  string `yaml:"name"`
-	Description           string `yaml:"description"`
-	DisableModelInvocation bool  `yaml:"disable-model-invocation"`
-	Glob                  string `yaml:"glob"`
+	Name                   string `yaml:"name"`
+	Description            string `yaml:"description"`
+	DisableModelInvocation bool   `yaml:"disable-model-invocation"`
+	Glob                   string `yaml:"glob"`
 }
 
 // SkillDiagnostic represents a warning from skill loading.
@@ -314,24 +314,24 @@ type AgentHarnessResources struct {
 
 // AgentHarnessStreamOptions configures provider requests from the harness.
 type AgentHarnessStreamOptions struct {
-	Transport      string            `json:"transport,omitempty"`
-	TimeoutMs      int               `json:"timeoutMs,omitempty"`
-	MaxRetries     int               `json:"maxRetries,omitempty"`
-	MaxRetryDelayMs int              `json:"maxRetryDelayMs,omitempty"`
-	Headers        map[string]string `json:"headers,omitempty"`
-	Metadata       map[string]interface{} `json:"metadata,omitempty"`
-	CacheRetention string            `json:"cacheRetention,omitempty"`
+	Transport       string                 `json:"transport,omitempty"`
+	TimeoutMs       int                    `json:"timeoutMs,omitempty"`
+	MaxRetries      int                    `json:"maxRetries,omitempty"`
+	MaxRetryDelayMs int                    `json:"maxRetryDelayMs,omitempty"`
+	Headers         map[string]string      `json:"headers,omitempty"`
+	Metadata        map[string]interface{} `json:"metadata,omitempty"`
+	CacheRetention  string                 `json:"cacheRetention,omitempty"`
 }
 
 // AgentHarnessStreamOptionsPatch patches stream options per request.
 type AgentHarnessStreamOptionsPatch struct {
-	Transport       *string                 `json:"transport,omitempty"`
-	TimeoutMs       *int                    `json:"timeoutMs,omitempty"`
-	MaxRetries      *int                    `json:"maxRetries,omitempty"`
-	MaxRetryDelayMs *int                    `json:"maxRetryDelayMs,omitempty"`
-	Headers         map[string]*string      `json:"headers,omitempty"`
-	Metadata        map[string]interface{}  `json:"metadata,omitempty"`
-	CacheRetention  *string                 `json:"cacheRetention,omitempty"`
+	Transport       *string                `json:"transport,omitempty"`
+	TimeoutMs       *int                   `json:"timeoutMs,omitempty"`
+	MaxRetries      *int                   `json:"maxRetries,omitempty"`
+	MaxRetryDelayMs *int                   `json:"maxRetryDelayMs,omitempty"`
+	Headers         map[string]*string     `json:"headers,omitempty"`
+	Metadata        map[string]interface{} `json:"metadata,omitempty"`
+	CacheRetention  *string                `json:"cacheRetention,omitempty"`
 }
 
 // ============================================================================
@@ -378,10 +378,10 @@ type CompactionEntry struct {
 // BranchSummaryEntry records a branch summary.
 type BranchSummaryEntry struct {
 	SessionTreeEntryBase
-	FromID  string      `json:"fromId"`
-	Summary string      `json:"summary"`
-	Details interface{} `json:"details,omitempty"`
-	FromHook bool       `json:"fromHook,omitempty"`
+	FromID   string      `json:"fromId"`
+	Summary  string      `json:"summary"`
+	Details  interface{} `json:"details,omitempty"`
+	FromHook bool        `json:"fromHook,omitempty"`
 }
 
 // CustomEntry stores custom extension data.
@@ -471,13 +471,13 @@ type CompactionSettings struct {
 
 // CompactionPreparation contains data for a compaction operation.
 type CompactionPreparation struct {
-	FirstKeptEntryID     string              `json:"firstKeptEntryId"`
-	MessagesToSummarize  []agent.AgentMessage `json:"messagesToSummarize"`
-	TurnPrefixMessages   []agent.AgentMessage `json:"turnPrefixMessages"`
-	IsSplitTurn          bool                `json:"isSplitTurn"`
-	TokensBefore         int                 `json:"tokensBefore"`
-	PreviousSummary      string              `json:"previousSummary,omitempty"`
-	Settings             CompactionSettings  `json:"settings"`
+	FirstKeptEntryID    string               `json:"firstKeptEntryId"`
+	MessagesToSummarize []agent.AgentMessage `json:"messagesToSummarize"`
+	TurnPrefixMessages  []agent.AgentMessage `json:"turnPrefixMessages"`
+	IsSplitTurn         bool                 `json:"isSplitTurn"`
+	TokensBefore        int                  `json:"tokensBefore"`
+	PreviousSummary     string               `json:"previousSummary,omitempty"`
+	Settings            CompactionSettings   `json:"settings"`
 }
 
 // CompactResult contains the result of a compaction.
@@ -496,28 +496,28 @@ type CompactResult struct {
 type AgentHarnessPhase string
 
 const (
-	PhaseIdle           AgentHarnessPhase = "idle"
-	PhaseTurn           AgentHarnessPhase = "turn"
-	PhaseCompaction     AgentHarnessPhase = "compaction"
-	PhaseBranchSummary  AgentHarnessPhase = "branch_summary"
-	PhaseRetry          AgentHarnessPhase = "retry"
+	PhaseIdle          AgentHarnessPhase = "idle"
+	PhaseTurn          AgentHarnessPhase = "turn"
+	PhaseCompaction    AgentHarnessPhase = "compaction"
+	PhaseBranchSummary AgentHarnessPhase = "branch_summary"
+	PhaseRetry         AgentHarnessPhase = "retry"
 )
 
 // Harness-specific event types (not in agent.AgentEvent).
 type (
 	QueueUpdateEvent struct {
-		Type      string            `json:"type"`
-		Steer     []agent.AgentMessage `json:"steer"`
-		FollowUp  []agent.AgentMessage `json:"followUp"`
-		NextTurn  []agent.AgentMessage `json:"nextTurn"`
+		Type     string               `json:"type"`
+		Steer    []agent.AgentMessage `json:"steer"`
+		FollowUp []agent.AgentMessage `json:"followUp"`
+		NextTurn []agent.AgentMessage `json:"nextTurn"`
 	}
 	SavePointEvent struct {
-		Type               string `json:"type"`
-		HadPendingMutations bool  `json:"hadPendingMutations"`
+		Type                string `json:"type"`
+		HadPendingMutations bool   `json:"hadPendingMutations"`
 	}
 	AbortEvent struct {
-		Type         string            `json:"type"`
-		ClearedSteer []agent.AgentMessage `json:"clearedSteer"`
+		Type            string               `json:"type"`
+		ClearedSteer    []agent.AgentMessage `json:"clearedSteer"`
 		ClearedFollowUp []agent.AgentMessage `json:"clearedFollowUp"`
 	}
 	SettledEvent struct {
@@ -528,24 +528,24 @@ type (
 
 // Harness event type constants.
 const (
-	EventQueueUpdate         = "queue_update"
-	EventSavePoint           = "save_point"
-	EventAbort               = "abort"
-	EventSettled             = "settled"
-	EventBeforeAgentStart    = "before_agent_start"
-	EventContext             = "context"
-	EventBeforeProviderReq   = "before_provider_request"
+	EventQueueUpdate           = "queue_update"
+	EventSavePoint             = "save_point"
+	EventAbort                 = "abort"
+	EventSettled               = "settled"
+	EventBeforeAgentStart      = "before_agent_start"
+	EventContext               = "context"
+	EventBeforeProviderReq     = "before_provider_request"
 	EventBeforeProviderPayload = "before_provider_payload"
-	EventAfterProviderResp   = "after_provider_response"
-	EventToolCall            = "tool_call"
-	EventToolResult          = "tool_result"
-	EventSessionBeforeCompact = "session_before_compact"
-	EventSessionCompact      = "session_compact"
-	EventSessionBeforeTree   = "session_before_tree"
-	EventSessionTree         = "session_tree"
-	EventModelSelect         = "model_select"
-	EventThinkingLevelSelect = "thinking_level_select"
-	EventResourcesUpdate     = "resources_update"
+	EventAfterProviderResp     = "after_provider_response"
+	EventToolCall              = "tool_call"
+	EventToolResult            = "tool_result"
+	EventSessionBeforeCompact  = "session_before_compact"
+	EventSessionCompact        = "session_compact"
+	EventSessionBeforeTree     = "session_before_tree"
+	EventSessionTree           = "session_tree"
+	EventModelSelect           = "model_select"
+	EventThinkingLevelSelect   = "thinking_level_select"
+	EventResourcesUpdate       = "resources_update"
 )
 
 // ============================================================================
@@ -554,19 +554,19 @@ const (
 
 // TreePreparation contains data for tree navigation.
 type TreePreparation struct {
-	TargetID        string  `json:"targetId"`
-	OldLeafID       *string `json:"oldLeafId"`
-	CommonAncestorID *string `json:"commonAncestorId"`
-	UserWantsSummary bool   `json:"userWantsSummary"`
-	CustomInstructions string `json:"customInstructions,omitempty"`
-	ReplaceInstructions bool `json:"replaceInstructions,omitempty"`
-	Label           string  `json:"label,omitempty"`
+	TargetID            string  `json:"targetId"`
+	OldLeafID           *string `json:"oldLeafId"`
+	CommonAncestorID    *string `json:"commonAncestorId"`
+	UserWantsSummary    bool    `json:"userWantsSummary"`
+	CustomInstructions  string  `json:"customInstructions,omitempty"`
+	ReplaceInstructions bool    `json:"replaceInstructions,omitempty"`
+	Label               string  `json:"label,omitempty"`
 }
 
 // NavigateTreeResult contains the result of a tree navigation.
 type NavigateTreeResult struct {
-	Cancelled   bool                `json:"cancelled"`
-	EditorText  string              `json:"editorText,omitempty"`
+	Cancelled    bool                `json:"cancelled"`
+	EditorText   string              `json:"editorText,omitempty"`
 	SummaryEntry *BranchSummaryEntry `json:"summaryEntry,omitempty"`
 }
 

@@ -27,8 +27,8 @@ import (
 // Multiple hooks can be registered; all are called in order. If any returns an
 // error, execution is blocked and subsequent hooks are skipped.
 var (
-	userBashHooks   []func(command string) error
-	userBashMu      sync.RWMutex
+	userBashHooks []func(command string) error
+	userBashMu    sync.RWMutex
 )
 
 // RegisterUserBashHook registers a hook called before every user bash command.
@@ -1271,7 +1271,3 @@ func walkGitIgnore(root string, fn filepath.WalkFunc) error {
 		return fn(path, info, err)
 	})
 }
-
-
-
-

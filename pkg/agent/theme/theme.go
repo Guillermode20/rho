@@ -43,32 +43,32 @@ func BuiltinThemes() []Theme {
 // DefaultTheme returns the default light theme.
 func DefaultTheme() Theme {
 	return Theme{
-		Name:  "default",
-		Dark:  false,
+		Name: "default",
+		Dark: false,
 		Colors: map[string]ThemeColor{
-			"bg":          {Name: "bg", ANSI: 0, Hex: "#ffffff"},
-			"fg":          {Name: "fg", ANSI: 7, Hex: "#000000"},
-			"accent":      {Name: "accent", ANSI: 4, Hex: "#0066cc"},
-			"success":     {Name: "success", ANSI: 2, Hex: "#00aa00"},
-			"warning":     {Name: "warning", ANSI: 3, Hex: "#cc8800"},
-			"error":       {Name: "error", ANSI: 1, Hex: "#cc0000"},
-			"info":        {Name: "info", ANSI: 6, Hex: "#0099cc"},
-			"subtle":      {Name: "subtle", ANSI: 8, Hex: "#888888"},
-			"highlight":   {Name: "highlight", ANSI: 5, Hex: "#aa00aa"},
+			"bg":        {Name: "bg", ANSI: 0, Hex: "#ffffff"},
+			"fg":        {Name: "fg", ANSI: 7, Hex: "#000000"},
+			"accent":    {Name: "accent", ANSI: 4, Hex: "#0066cc"},
+			"success":   {Name: "success", ANSI: 2, Hex: "#00aa00"},
+			"warning":   {Name: "warning", ANSI: 3, Hex: "#cc8800"},
+			"error":     {Name: "error", ANSI: 1, Hex: "#cc0000"},
+			"info":      {Name: "info", ANSI: 6, Hex: "#0099cc"},
+			"subtle":    {Name: "subtle", ANSI: 8, Hex: "#888888"},
+			"highlight": {Name: "highlight", ANSI: 5, Hex: "#aa00aa"},
 		},
 		Styles: map[string]string{
-			"title":       "\x1b[1;34m",   // Bold blue
-			"user":        "\x1b[1;32m",   // Bold green
-			"assistant":   "\x1b[1;34m",   // Bold blue
-			"tool":        "\x1b[33m",     // Yellow
-			"error":       "\x1b[1;31m",   // Bold red
-			"code":        "\x1b[33m",     // Yellow
-			"codeblock":   "\x1b[32m",     // Green
-			"link":        "\x1b[34m",     // Blue
-			"dim":         "\x1b[2m",      // Dim
-			"bold":        "\x1b[1m",      // Bold
-			"italic":      "\x1b[3m",      // Italic
-			"separator":   "\x1b[90m",     // Bright black
+			"title":     "\x1b[1;34m", // Bold blue
+			"user":      "\x1b[1;32m", // Bold green
+			"assistant": "\x1b[1;34m", // Bold blue
+			"tool":      "\x1b[33m",   // Yellow
+			"error":     "\x1b[1;31m", // Bold red
+			"code":      "\x1b[33m",   // Yellow
+			"codeblock": "\x1b[32m",   // Green
+			"link":      "\x1b[34m",   // Blue
+			"dim":       "\x1b[2m",    // Dim
+			"bold":      "\x1b[1m",    // Bold
+			"italic":    "\x1b[3m",    // Italic
+			"separator": "\x1b[90m",   // Bright black
 		},
 	}
 }
@@ -76,28 +76,28 @@ func DefaultTheme() Theme {
 // DraculaTheme returns a dark Dracula-inspired theme.
 func DraculaTheme() Theme {
 	return Theme{
-		Name:  "dracula",
-		Dark:  true,
+		Name: "dracula",
+		Dark: true,
 		Colors: map[string]ThemeColor{
-			"bg":          {Hex: "#282a36"},
-			"fg":          {Hex: "#f8f8f2"},
-			"accent":      {Hex: "#bd93f9"},
-			"success":     {Hex: "#50fa7b"},
-			"warning":     {Hex: "#f1fa8c"},
-			"error":       {Hex: "#ff5555"},
-			"info":        {Hex: "#8be9fd"},
-			"subtle":      {Hex: "#6272a4"},
-			"highlight":   {Hex: "#ff79c6"},
+			"bg":        {Hex: "#282a36"},
+			"fg":        {Hex: "#f8f8f2"},
+			"accent":    {Hex: "#bd93f9"},
+			"success":   {Hex: "#50fa7b"},
+			"warning":   {Hex: "#f1fa8c"},
+			"error":     {Hex: "#ff5555"},
+			"info":      {Hex: "#8be9fd"},
+			"subtle":    {Hex: "#6272a4"},
+			"highlight": {Hex: "#ff79c6"},
 		},
 		Styles: map[string]string{
-			"title":       "\x1b[1;35m",
-			"user":        "\x1b[1;32m",
-			"assistant":   "\x1b[1;35m",
-			"tool":        "\x1b[33m",
-			"error":       "\x1b[1;31m",
-			"code":        "\x1b[93m",
-			"dim":         "\x1b[2m",
-			"bold":        "\x1b[1m",
+			"title":     "\x1b[1;35m",
+			"user":      "\x1b[1;32m",
+			"assistant": "\x1b[1;35m",
+			"tool":      "\x1b[33m",
+			"error":     "\x1b[1;31m",
+			"code":      "\x1b[93m",
+			"dim":       "\x1b[2m",
+			"bold":      "\x1b[1m",
 		},
 	}
 }
@@ -105,28 +105,28 @@ func DraculaTheme() Theme {
 // CatppuccinTheme returns a Catppuccin Mocha-inspired dark theme.
 func CatppuccinTheme() Theme {
 	return Theme{
-		Name:  "catppuccin",
-		Dark:  true,
+		Name: "catppuccin",
+		Dark: true,
 		Colors: map[string]ThemeColor{
-			"bg":          {Hex: "#1e1e2e"},
-			"fg":          {Hex: "#cdd6f4"},
-			"accent":      {Hex: "#89b4fa"},
-			"success":     {Hex: "#a6e3a1"},
-			"warning":     {Hex: "#f9e2af"},
-			"error":       {Hex: "#f38ba8"},
-			"info":        {Hex: "#89dceb"},
-			"subtle":      {Hex: "#585b70"},
-			"highlight":   {Hex: "#cba6f7"},
+			"bg":        {Hex: "#1e1e2e"},
+			"fg":        {Hex: "#cdd6f4"},
+			"accent":    {Hex: "#89b4fa"},
+			"success":   {Hex: "#a6e3a1"},
+			"warning":   {Hex: "#f9e2af"},
+			"error":     {Hex: "#f38ba8"},
+			"info":      {Hex: "#89dceb"},
+			"subtle":    {Hex: "#585b70"},
+			"highlight": {Hex: "#cba6f7"},
 		},
 		Styles: map[string]string{
-			"title":       "\x1b[38;5;117m",
-			"user":        "\x1b[38;5;120m",
-			"assistant":   "\x1b[38;5;117m",
-			"tool":        "\x1b[38;5;228m",
-			"error":       "\x1b[38;5;210m",
-			"code":        "\x1b[38;5;228m",
-			"dim":         "\x1b[2m",
-			"bold":        "\x1b[1m",
+			"title":     "\x1b[38;5;117m",
+			"user":      "\x1b[38;5;120m",
+			"assistant": "\x1b[38;5;117m",
+			"tool":      "\x1b[38;5;228m",
+			"error":     "\x1b[38;5;210m",
+			"code":      "\x1b[38;5;228m",
+			"dim":       "\x1b[2m",
+			"bold":      "\x1b[1m",
 		},
 	}
 }

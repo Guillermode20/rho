@@ -32,13 +32,13 @@ func StripSGR(s string) string {
 type ANSICategory int
 
 const (
-	ANSIPlain    ANSICategory = iota
-	ANSISGR                  // Contains SGR color/style codes
-	ANSICursor               // Contains cursor movement codes
-	ANSIErase                // Contains erase codes
-	ANSIHyperlink            // Contains hyperlink OSC 8 codes
-	ANSIImage                // Contains Kitty image protocol
-	ANSIOther                // Other ANSI sequences
+	ANSIPlain     ANSICategory = iota
+	ANSISGR                    // Contains SGR color/style codes
+	ANSICursor                 // Contains cursor movement codes
+	ANSIErase                  // Contains erase codes
+	ANSIHyperlink              // Contains hyperlink OSC 8 codes
+	ANSIImage                  // Contains Kitty image protocol
+	ANSIOther                  // Other ANSI sequences
 )
 
 // CategorizeANSI determines the category of ANSI sequences present in a string.

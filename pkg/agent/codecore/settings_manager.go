@@ -24,8 +24,8 @@ type SettingsManager struct {
 
 func NewSettingsManager(userDir, projectDir string) *SettingsManager {
 	sm := &SettingsManager{
-		settings:    make(map[string]interface{}),
-		userPath:    filepath.Join(userDir, "settings.json"),
+		settings:     make(map[string]interface{}),
+		userPath:     filepath.Join(userDir, "settings.json"),
 		defaultsPath: filepath.Join(userDir, "defaults.json"),
 	}
 	if projectDir != "" {

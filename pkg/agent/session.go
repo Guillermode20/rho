@@ -133,6 +133,8 @@ func (sm *SessionManager) Save(sessionID string, header SessionHeader, messages 
 // Load loads a session from disk, returning messages in file order.
 // For tree-based context reconstruction, use LoadContextFromLeaf instead.
 func (sm *SessionManager) Load(sessionID string) (SessionHeader, []AgentMessage, error) {
+	sm.mu.Lock()
+	defer sm.mu.Unlock()
 	return sm.loadSession(sessionID)
 }
 

@@ -5,7 +5,8 @@
 //
 // Build:  go build -o protected-paths ./examples/extensions/protected-paths/
 // Deploy: cp protected-paths ~/.rho/extensions/protected-paths/
-//         cp examples/extensions/protected-paths/rho.toml ~/.rho/extensions/protected-paths/
+//
+//	cp examples/extensions/protected-paths/rho.toml ~/.rho/extensions/protected-paths/
 package main
 
 import (

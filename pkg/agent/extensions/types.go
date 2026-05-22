@@ -22,13 +22,13 @@ import (
 
 // ToolDefinition describes a custom tool for extensions.
 type ToolDefinition struct {
-	Name        string      `json:"name"`
-	Label       string      `json:"label"`
-	Description string      `json:"description"`
-	PromptSnippet string    `json:"promptSnippet,omitempty"`
-	PromptGuidelines []string `json:"promptGuidelines,omitempty"`
-	Parameters  interface{} `json:"parameters"` // JSON schema
-	Execute     func(args map[string]interface{}) (string, bool, error) `json:"-"`
+	Name             string                                                  `json:"name"`
+	Label            string                                                  `json:"label"`
+	Description      string                                                  `json:"description"`
+	PromptSnippet    string                                                  `json:"promptSnippet,omitempty"`
+	PromptGuidelines []string                                                `json:"promptGuidelines,omitempty"`
+	Parameters       interface{}                                             `json:"parameters"` // JSON schema
+	Execute          func(args map[string]interface{}) (string, bool, error) `json:"-"`
 }
 
 // DefineTool creates a tool definition with proper type inference.
@@ -60,13 +60,13 @@ const (
 
 // SessionStartEvent fires when a session starts.
 type SessionStartEvent struct {
-	Type              SessionReason
+	Type                SessionReason
 	PreviousSessionFile string
 }
 
 // SessionShutdownEvent fires when a session shuts down.
 type SessionShutdownEvent struct {
-	Reason      SessionReason
+	Reason            SessionReason
 	TargetSessionFile string
 }
 
@@ -88,9 +88,9 @@ type TurnStartEvent struct {
 
 // TurnEndEvent fires at the end of each turn.
 type TurnEndEvent struct {
-	TurnIndex    int
-	Message      agent.AgentMessage
-	ToolResults  []ai.ToolResultMessage
+	TurnIndex   int
+	Message     agent.AgentMessage
+	ToolResults []ai.ToolResultMessage
 }
 
 // ContextEvent fires before each LLM call.
@@ -111,8 +111,8 @@ type AfterProviderResponseEvent struct {
 
 // BeforeAgentStartEvent fires before the agent starts processing.
 type BeforeAgentStartEvent struct {
-	Prompt        string
-	SystemPrompt  string
+	Prompt       string
+	SystemPrompt string
 }
 
 // InputEvent fires when user input is received.
@@ -152,7 +152,7 @@ type ToolResultEvent struct {
 
 // UserBashEvent fires when a user bash command is run.
 type UserBashEvent struct {
-	Command           string
+	Command            string
 	ExcludeFromContext bool
 }
 
@@ -171,31 +171,31 @@ type ExtensionUIContext struct {
 
 // ExtensionContext is passed to all extension event handlers.
 type ExtensionContext struct {
-	UI             ExtensionUIContext
-	HasUI          bool
-	CWD            string
-	Model          *ai.Model
-	Abort          func()
-	Shutdown       func()
-	AgentLoop      *agent.AgentLoop
+	UI               ExtensionUIContext
+	HasUI            bool
+	CWD              string
+	Model            *ai.Model
+	Abort            func()
+	Shutdown         func()
+	AgentLoop        *agent.AgentLoop
 	ExtensionRuntime *Runtime
 }
 
 // Collection of event handler types.
 type (
-	SessionStartHandler         func(ctx ExtensionContext, event SessionStartEvent) error
-	SessionShutdownHandler      func(ctx ExtensionContext, event SessionShutdownEvent) error
-	AgentStartHandler           func(ctx ExtensionContext) error
-	AgentEndHandler             func(ctx ExtensionContext, event AgentEndEvent) error
-	TurnStartHandler            func(ctx ExtensionContext, event TurnStartEvent) error
-	TurnEndHandler              func(ctx ExtensionContext, event TurnEndEvent) error
-	ContextHandler              func(ctx ExtensionContext, event ContextEvent) ([]agent.AgentMessage, error)
+	SessionStartHandler          func(ctx ExtensionContext, event SessionStartEvent) error
+	SessionShutdownHandler       func(ctx ExtensionContext, event SessionShutdownEvent) error
+	AgentStartHandler            func(ctx ExtensionContext) error
+	AgentEndHandler              func(ctx ExtensionContext, event AgentEndEvent) error
+	TurnStartHandler             func(ctx ExtensionContext, event TurnStartEvent) error
+	TurnEndHandler               func(ctx ExtensionContext, event TurnEndEvent) error
+	ContextHandler               func(ctx ExtensionContext, event ContextEvent) ([]agent.AgentMessage, error)
 	BeforeProviderRequestHandler func(ctx ExtensionContext, event BeforeProviderRequestEvent) (interface{}, error)
-	BeforeAgentStartHandler     func(ctx ExtensionContext, event BeforeAgentStartEvent) error
-	InputHandler                func(ctx ExtensionContext, event InputEvent) (*InputEventResult, error)
-	ToolCallHandler             func(ctx ExtensionContext, event ToolCallEvent) (*ToolCallEventResult, error)
-	ToolResultHandler           func(ctx ExtensionContext, event ToolResultEvent) error
-	UserBashHandler             func(ctx ExtensionContext, event UserBashEvent) error
+	BeforeAgentStartHandler      func(ctx ExtensionContext, event BeforeAgentStartEvent) error
+	InputHandler                 func(ctx ExtensionContext, event InputEvent) (*InputEventResult, error)
+	ToolCallHandler              func(ctx ExtensionContext, event ToolCallEvent) (*ToolCallEventResult, error)
+	ToolResultHandler            func(ctx ExtensionContext, event ToolResultEvent) error
+	UserBashHandler              func(ctx ExtensionContext, event UserBashEvent) error
 )
 
 // ============================================================================
@@ -212,9 +212,9 @@ type SlashCommand struct {
 
 // RegisteredCommand is a command that has been registered with the system.
 type RegisteredCommand struct {
-	Name        string   `json:"name"`
-	Description string   `json:"description"`
-	Args        []string `json:"args,omitempty"`
+	Name        string                                          `json:"name"`
+	Description string                                          `json:"description"`
+	Args        []string                                        `json:"args,omitempty"`
 	Handler     func(ctx ExtensionContext, args []string) error `json:"-"`
 }
 
@@ -224,11 +224,11 @@ type RegisteredCommand struct {
 
 // ProviderConfig defines a custom AI provider from an extension.
 type ProviderConfig struct {
-	Name    string       `json:"name"`
-	API     ai.API       `json:"api"`
-	BaseURL string       `json:"baseUrl"`
-	APIKey  string       `json:"apiKey,omitempty"`
-	Models  []ai.Model   `json:"models"`
+	Name    string     `json:"name"`
+	API     ai.API     `json:"api"`
+	BaseURL string     `json:"baseUrl"`
+	APIKey  string     `json:"apiKey,omitempty"`
+	Models  []ai.Model `json:"models"`
 }
 
 // ============================================================================
@@ -237,8 +237,8 @@ type ProviderConfig struct {
 
 // MessageRenderer renders custom message types in the UI.
 type MessageRenderer struct {
-	Type     string
-	Render   func(msg agent.AgentMessage, width int) []string
+	Type   string
+	Render func(msg agent.AgentMessage, width int) []string
 }
 
 // ============================================================================
@@ -271,19 +271,19 @@ type ExtensionDef struct {
 	Version     string `json:"version,omitempty"`
 
 	// Event handlers
-	OnSessionStart         SessionStartHandler
-	OnSessionShutdown      SessionShutdownHandler
-	OnAgentStart           AgentStartHandler
-	OnAgentEnd             AgentEndHandler
-	OnTurnStart            TurnStartHandler
-	OnTurnEnd              TurnEndHandler
-	OnContext              ContextHandler
+	OnSessionStart          SessionStartHandler
+	OnSessionShutdown       SessionShutdownHandler
+	OnAgentStart            AgentStartHandler
+	OnAgentEnd              AgentEndHandler
+	OnTurnStart             TurnStartHandler
+	OnTurnEnd               TurnEndHandler
+	OnContext               ContextHandler
 	OnBeforeProviderRequest BeforeProviderRequestHandler
-	OnBeforeAgentStart     BeforeAgentStartHandler
-	OnInput                InputHandler
-	OnToolCall             ToolCallHandler
-	OnToolResult           ToolResultHandler
-	OnUserBash             UserBashHandler
+	OnBeforeAgentStart      BeforeAgentStartHandler
+	OnInput                 InputHandler
+	OnToolCall              ToolCallHandler
+	OnToolResult            ToolResultHandler
+	OnUserBash              UserBashHandler
 
 	// Registered items
 	CustomTools      []ToolDefinition

@@ -5,7 +5,8 @@
 //
 // Build:  go build -o file-trigger ./examples/extensions/file-trigger/
 // Deploy: cp file-trigger ~/.rho/extensions/file-trigger/
-//         cp examples/extensions/file-trigger/rho.toml ~/.rho/extensions/file-trigger/
+//
+//	cp examples/extensions/file-trigger/rho.toml ~/.rho/extensions/file-trigger/
 package main
 
 import (

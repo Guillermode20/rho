@@ -31,18 +31,18 @@ type RPCError struct {
 
 // ExtensionProcess manages a single extension process and handles bidirectional JSON-RPC 2.0.
 type ExtensionProcess struct {
-	dir          string
-	manifest     *Manifest
-	cmd          *exec.Cmd
-	stdin        io.WriteCloser
-	stdout       io.ReadCloser
-	stderr       io.ReadCloser
-	mu           sync.Mutex
-	pending      map[string]chan *RPCMessage
-	nextID       uint64
-	isRunning    bool
-	ui           ExtensionUIContext
-	logger       func(string)
+	dir       string
+	manifest  *Manifest
+	cmd       *exec.Cmd
+	stdin     io.WriteCloser
+	stdout    io.ReadCloser
+	stderr    io.ReadCloser
+	mu        sync.Mutex
+	pending   map[string]chan *RPCMessage
+	nextID    uint64
+	isRunning bool
+	ui        ExtensionUIContext
+	logger    func(string)
 }
 
 // NewExtensionProcess creates a new ExtensionProcess.

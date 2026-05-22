@@ -6,7 +6,8 @@
 //
 // Build:  go build -o inline-bash ./examples/extensions/inline-bash/
 // Deploy: cp inline-bash ~/.rho/extensions/inline-bash/
-//         cp examples/extensions/inline-bash/rho.toml ~/.rho/extensions/inline-bash/
+//
+//	cp examples/extensions/inline-bash/rho.toml ~/.rho/extensions/inline-bash/
 package main
 
 import (

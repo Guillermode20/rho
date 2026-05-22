@@ -16,11 +16,11 @@ import (
 
 // ExportOptions configures the HTML export.
 type ExportOptions struct {
-	Title       string `json:"title,omitempty"`
-	IncludeCSS  bool   `json:"includeCSS"`
-	IncludeJS   bool   `json:"includeJS"`
-	DarkMode    bool   `json:"darkMode"`
-	ShowTimestamps bool `json:"showTimestamps"`
+	Title          string `json:"title,omitempty"`
+	IncludeCSS     bool   `json:"includeCSS"`
+	IncludeJS      bool   `json:"includeJS"`
+	DarkMode       bool   `json:"darkMode"`
+	ShowTimestamps bool   `json:"showTimestamps"`
 }
 
 // DefaultExportOptions returns sensible defaults.

@@ -5,7 +5,8 @@
 //
 // Build:  go build -o git-checkpoint ./examples/extensions/git-checkpoint/
 // Deploy: cp git-checkpoint ~/.rho/extensions/git-checkpoint/
-//         cp examples/extensions/git-checkpoint/rho.toml ~/.rho/extensions/git-checkpoint/
+//
+//	cp examples/extensions/git-checkpoint/rho.toml ~/.rho/extensions/git-checkpoint/
 package main
 
 import (

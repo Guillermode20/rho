@@ -9,8 +9,8 @@ import (
 
 // ChangelogEntry represents a single changelog entry.
 type ChangelogEntry struct {
-	Version string `json:"version"`
-	Date    string `json:"date"`
+	Version string       `json:"version"`
+	Date    string       `json:"date"`
 	Changes []ChangeItem `json:"changes"`
 }
 

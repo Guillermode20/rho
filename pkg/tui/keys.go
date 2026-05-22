@@ -38,7 +38,7 @@ type KeyID string
 type KeyEventType int
 
 const (
-	KeyPress  KeyEventType = iota
+	KeyPress KeyEventType = iota
 	KeyRepeat
 	KeyRelease
 )

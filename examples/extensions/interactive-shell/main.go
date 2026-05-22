@@ -6,7 +6,8 @@
 //
 // Build:  go build -o interactive-shell ./examples/extensions/interactive-shell/
 // Deploy: cp interactive-shell ~/.rho/extensions/interactive-shell/
-//         cp examples/extensions/interactive-shell/rho.toml ~/.rho/extensions/interactive-shell/
+//
+//	cp examples/extensions/interactive-shell/rho.toml ~/.rho/extensions/interactive-shell/
 package main
 
 import (

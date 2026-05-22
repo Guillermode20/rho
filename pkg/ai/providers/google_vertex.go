@@ -67,7 +67,7 @@ func streamVertex(model ai.Model, ctx ai.Context, opts *VertexOptions, callback 
 	}
 
 	body := map[string]interface{}{
-		"contents": buildVertexContents(ctx),
+		"contents":         buildVertexContents(ctx),
 		"generationConfig": map[string]interface{}{},
 	}
 	if ctx.SystemPrompt != "" {

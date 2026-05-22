@@ -12,14 +12,14 @@ import (
 
 // GitHubCopilotToken represents the token exchange response from GitHub Copilot.
 type GitHubCopilotToken struct {
-	Token       string `json:"token"`
-	ExpiresAt   int64  `json:"expires_at"`
-	MinToken    string `json:"min_token"`
-	MinExpiresAt int64 `json:"min_expires_at"`
+	Token        string `json:"token"`
+	ExpiresAt    int64  `json:"expires_at"`
+	MinToken     string `json:"min_token"`
+	MinExpiresAt int64  `json:"min_expires_at"`
 }
 
 const (
-	githubCopilotTokenURL     = "https://api.github.com/copilot_internal/v2/token"
+	githubCopilotTokenURL        = "https://api.github.com/copilot_internal/v2/token"
 	githubCopilotChatCompletions = "https://api.githubcopilot.com/chat/completions"
 )
 
@@ -135,7 +135,7 @@ func exchangeCopilotToken(githubToken string) (*CopilotAuthResult, error) {
 // The editor-version and copilot-integration-id headers are required by GitHub's API.
 func BuildCopilotDynamicHeaders(token string, baseURL string) map[string]string {
 	headers := map[string]string{
-		"Authorization":          "Bearer " + token,
+		"Authorization":         "Bearer " + token,
 		"Content-Type":          "application/json",
 		"Editor-Version":        "vscode/1.85.0",
 		"Editor-Plugin-Version": "copilot-chat/0.17.0",

@@ -12,8 +12,8 @@ func TestVisibleWidth(t *testing.T) {
 		{"", 0},
 		{"hello", 5},
 		{"héllo", 5},
-		{"你好", 4},   // CJK characters are 2 wide each
-		{"hello 世界", 10}, // "hello " (6) + "世界" (4) = 10
+		{"你好", 4},                 // CJK characters are 2 wide each
+		{"hello 世界", 10},          // "hello " (6) + "世界" (4) = 10
 		{"\x1b[31mred\x1b[0m", 3}, // ANSI sequences have zero width
 		{"a\x1b[1mb", 2},
 	}
@@ -116,7 +116,7 @@ func TestWrapTextWithAnsi(t *testing.T) {
 		maxWidth int
 		wantLen  int
 	}{
-		{"hello world", 5, 3},   // "hello", " worl", "d" (character-level)
+		{"hello world", 5, 3}, // "hello", " worl", "d" (character-level)
 		{"short", 10, 1},
 		{"", 10, 0},
 		{"a", 5, 1},

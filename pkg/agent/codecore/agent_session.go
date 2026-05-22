@@ -136,7 +136,7 @@ func LoadSession(path string) (*AgentSession, error) {
 		return nil, err
 	}
 	var raw struct {
-		Config   AgentSessionConfig  `json:"config"`
+		Config   AgentSessionConfig   `json:"config"`
 		Messages []agent.AgentMessage `json:"messages"`
 		Stats    SessionStats         `json:"stats"`
 	}

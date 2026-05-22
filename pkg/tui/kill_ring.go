@@ -45,7 +45,7 @@ func (kr *KillRing) Rotate() {
 		lastIdx := len(kr.ring) - 1
 		last := kr.ring[lastIdx]
 		kr.ring = kr.ring[:lastIdx]
-		
+
 		// Unshift
 		kr.ring = append([]string{last}, kr.ring...)
 	}

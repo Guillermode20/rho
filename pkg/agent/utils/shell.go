@@ -12,21 +12,21 @@ import (
 type ShellType string
 
 const (
-	ShellBash ShellType = "bash"
-	ShellZsh  ShellType = "zsh"
-	ShellFish ShellType = "fish"
-	ShellPWSH ShellType = "pwsh"
-	ShellCMD  ShellType = "cmd"
-	ShellSh   ShellType = "sh"
+	ShellBash    ShellType = "bash"
+	ShellZsh     ShellType = "zsh"
+	ShellFish    ShellType = "fish"
+	ShellPWSH    ShellType = "pwsh"
+	ShellCMD     ShellType = "cmd"
+	ShellSh      ShellType = "sh"
 	ShellUnknown ShellType = ""
 )
 
 // ShellConfig holds shell configuration.
 type ShellConfig struct {
-	Shell    string   `json:"shell"`
-	Args     []string `json:"args,omitempty"`
-	ShellType ShellType `json:"shellType"`
-	Env      map[string]string `json:"env,omitempty"`
+	Shell     string            `json:"shell"`
+	Args      []string          `json:"args,omitempty"`
+	ShellType ShellType         `json:"shellType"`
+	Env       map[string]string `json:"env,omitempty"`
 }
 
 // GetShellConfig returns the shell configuration for the current platform.

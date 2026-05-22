@@ -6,7 +6,8 @@
 //
 // Build:  go build -o custom-compaction ./examples/extensions/custom-compaction/
 // Deploy: cp custom-compaction ~/.rho/extensions/custom-compaction/
-//         cp examples/extensions/custom-compaction/rho.toml ~/.rho/extensions/custom-compaction/
+//
+//	cp examples/extensions/custom-compaction/rho.toml ~/.rho/extensions/custom-compaction/
 package main
 
 import (
@@ -18,9 +19,9 @@ import (
 )
 
 type compactionStrategy struct {
-	Name        string
-	Description string
-	TargetRatio float64 // Target proportion of context window after compaction
+	Name         string
+	Description  string
+	TargetRatio  float64 // Target proportion of context window after compaction
 	TriggerRatio float64 // Proportion at which compaction triggers
 }
 

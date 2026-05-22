@@ -73,7 +73,6 @@ func LoadExtensions(dirs []string, runtime *Runtime) *LoadExtensionsResult {
 			result.Loaded = append(result.Loaded, name)
 		}
 
-
 	}
 
 	sort.Strings(result.Loaded)
@@ -448,8 +447,6 @@ func LoadExtensionFromDir(dir string, runtime *Runtime, ui ExtensionUIContext) e
 
 	return nil
 }
-
-
 
 // BuiltinExtensions returns the built-in extensions that ship with rho.
 func BuiltinExtensions(runtime *Runtime) {

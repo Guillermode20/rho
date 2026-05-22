@@ -119,9 +119,9 @@ func FormatDiagnostics(diags []Diagnostic) []string {
 
 // ProviderError wraps provider errors with diagnostics.
 type ProviderError struct {
-	Provider    string `json:"provider"`
-	StatusCode  int    `json:"statusCode"`
-	Message     string `json:"message"`
+	Provider    string       `json:"provider"`
+	StatusCode  int          `json:"statusCode"`
+	Message     string       `json:"message"`
 	Diagnostics []Diagnostic `json:"diagnostics,omitempty"`
 }
 

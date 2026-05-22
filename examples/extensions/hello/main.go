@@ -5,7 +5,8 @@
 //
 // Build:  go build -o hello ./examples/extensions/hello/
 // Deploy: cp hello ~/.rho/extensions/hello/
-//         cp examples/extensions/hello/rho.toml ~/.rho/extensions/hello/
+//
+//	cp examples/extensions/hello/rho.toml ~/.rho/extensions/hello/
 package main
 
 import (

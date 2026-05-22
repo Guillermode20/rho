@@ -60,10 +60,10 @@ func ValidateToolArguments(args map[string]interface{}, schema map[string]interf
 
 type TSchema map[string]interface{}
 
-func String() TSchema     { return TSchema{"type": "string"} }
-func Number() TSchema     { return TSchema{"type": "number"} }
-func Boolean() TSchema    { return TSchema{"type": "boolean"} }
-func Integer() TSchema    { return TSchema{"type": "integer"} }
+func String() TSchema  { return TSchema{"type": "string"} }
+func Number() TSchema  { return TSchema{"type": "number"} }
+func Boolean() TSchema { return TSchema{"type": "boolean"} }
+func Integer() TSchema { return TSchema{"type": "integer"} }
 
 func Array(items TSchema) TSchema {
 	return TSchema{"type": "array", "items": items}

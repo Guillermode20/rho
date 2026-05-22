@@ -102,25 +102,25 @@ func TestGitIgnoreMatcherSubdirectoryAndMutation(t *testing.T) {
 func TestEditDiffFuzzyMappingPreservation(t *testing.T) {
 	// Original content has smart quotes and trailing spaces outside the edit zone:
 	originalContent := "Hello \u201CWorld\u201D   \nTarget line here\nSome other text \u2014 trailing space   \n"
-	
+
 	edits := []editDef{
 		{
 			oldText: "Some other text - trailing space", // uses ASCII hyphen instead of em-dash -> triggers fuzzy matching
 			newText: "New third line",
 		},
 	}
-	
+
 	result, err := applyEditsToNormalizedContent(originalContent, edits, "dummy_path.txt")
 	if err != nil {
 		t.Fatalf("applyEditsToNormalizedContent failed: %v", err)
 	}
-	
+
 	// The output should preserve the smart quotes and trailing spaces in the first line, but apply the edit on the third line!
 	expectedContent := "Hello \u201CWorld\u201D   \nTarget line here\nNew third line\n"
 	if result.newContent != expectedContent {
 		t.Errorf("expected content:\n%q\ngot:\n%q", expectedContent, result.newContent)
 	}
-	
+
 	if result.baseContent != originalContent {
 		t.Errorf("expected baseContent to be exactly the original content, got %q", result.baseContent)
 	}

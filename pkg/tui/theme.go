@@ -112,10 +112,10 @@ type Theme struct {
 	ansi struct {
 		reset string
 
-		bg    func(Color) string
-		fg    func(Color) string
-		bold  string
-		dim   string
+		bg     func(Color) string
+		fg     func(Color) string
+		bold   string
+		dim    string
 		italic string
 	}
 }
@@ -164,10 +164,14 @@ func (t *Theme) Error(s string) string     { return t.Colored(s, t.Palette.Error
 func (t *Theme) Muted(s string) string     { return t.Colored(s, t.Palette.Dim) }
 
 // BoldAccent returns bold + accent.
-func (t *Theme) BoldAccent(s string) string { return t.ansi.bold + t.ansi.fg(t.Palette.Accent) + s + t.ansi.reset }
+func (t *Theme) BoldAccent(s string) string {
+	return t.ansi.bold + t.ansi.fg(t.Palette.Accent) + s + t.ansi.reset
+}
 
 // BoldAccentAlt returns bold + accent-alt.
-func (t *Theme) BoldAccentAlt(s string) string { return t.ansi.bold + t.ansi.fg(t.Palette.AccentAlt) + s + t.ansi.reset }
+func (t *Theme) BoldAccentAlt(s string) string {
+	return t.ansi.bold + t.ansi.fg(t.Palette.AccentAlt) + s + t.ansi.reset
+}
 
 // ── Borders ──
 
