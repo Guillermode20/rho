@@ -1,0 +1,21 @@
+id = "rho.custom-compaction"
+name = "Custom Compaction Extension"
+version = "1.0.0"
+description = "Customizes how session compaction works."
+
+[entry]
+command = "./custom-compaction"
+
+[capabilities]
+tools = true
+commands = true
+skills = false
+prompts = false
+
+[[tools]]
+id = "set_compaction_strategy"
+description = "Set the compaction strategy: 'conservative', 'balanced', 'aggressive', or 'minimal'."
+
+[[commands]]
+id = "compaction-strategy"
+description = "View or set the compaction strategy."

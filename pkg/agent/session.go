@@ -19,6 +19,8 @@ type SessionHeader struct {
 	Timestamp     string `json:"timestamp"`
 	CWD           string `json:"cwd"`
 	ParentSession string `json:"parentSession,omitempty"`
+	LeafID        string `json:"leafId,omitempty"`
+	ParentLeafID  string `json:"parentLeafId,omitempty"`
 }
 
 // SessionEntry is a single entry in a session file.
@@ -37,11 +39,13 @@ type SessionEntry struct {
 
 // SessionInfo summarizes a saved session.
 type SessionInfo struct {
-	ID           string `json:"id"`
-	Timestamp    string `json:"timestamp"`
-	CWD          string `json:"cwd"`
-	MessageCount int    `json:"messageCount"`
-	Preview      string `json:"preview"`
+	ID            string `json:"id"`
+	Name          string `json:"name,omitempty"`
+	ParentSession string `json:"parentSession,omitempty"`
+	Timestamp     string `json:"timestamp"`
+	CWD           string `json:"cwd"`
+	MessageCount  int    `json:"messageCount"`
+	Preview       string `json:"preview"`
 }
 
 // SessionManager manages session persistence.
@@ -58,6 +62,8 @@ func NewSessionManager(sessionsDir string) *SessionManager {
 }
 
 // Save persists a session to disk.
+// Messages are linked in a chain via ParentID, and the last message ID is stored as LeafID
+// in the session header for tree-based context reconstruction.
 func (sm *SessionManager) Save(sessionID string, header SessionHeader, messages []AgentMessage) error {
 	sm.mu.Lock()
 	defer sm.mu.Unlock()
@@ -70,7 +76,8 @@ func (sm *SessionManager) Save(sessionID string, header SessionHeader, messages 
 
 	// Header
 	header.Type = "session"
-	header.Version = 3
+	header.Version = 4 // bumped for ParentID/LeafID support
+	header.LeafID = ""
 	entries = append(entries, SessionEntry{
 		Type:          "session",
 		Version:       header.Version,
@@ -80,18 +87,34 @@ func (sm *SessionManager) Save(sessionID string, header SessionHeader, messages 
 		ParentSession: header.ParentSession,
 	})
 
-	// Messages
-	for _, msg := range messages {
+	// Messages — build a parentId chain
+	// If header.ParentLeafID is set (fork), the first message's parent is the parent session's leaf
+	prevID := header.ParentLeafID
+	msgCounter := 0
+	for i, msg := range messages {
+		msgCounter++
+		entryID := fmt.Sprintf("msg_%d_%d", time.Now().UnixMilli(), msgCounter)
+		ts := fmt.Sprintf("%d", msg.Timestamp)
+		if ts == "0" || ts == "" {
+			ts = time.Now().Format(time.RFC3339)
+		}
+
 		entry := SessionEntry{
 			Type:      "message",
-			ID:        fmt.Sprintf("msg_%d", time.Now().UnixNano()),
-			Timestamp: fmt.Sprintf("%d", msg.Timestamp),
+			ID:        entryID,
+			ParentID:  prevID,
+			Timestamp: ts,
 			Message:   &msg,
 		}
-		if entry.Timestamp == "0" || entry.Timestamp == "" {
-			entry.Timestamp = time.Now().Format(time.RFC3339)
-		}
 		entries = append(entries, entry)
+		prevID = entryID
+
+		// Track leaf — last message that was just appended
+		if i == len(messages)-1 {
+			header.LeafID = entryID
+			// Update the header entry with the leaf ID
+			entries[0].FromID = entryID // store leaf reference in header's FromID
+		}
 	}
 
 	data, err := json.MarshalIndent(entries, "", "  ")
@@ -107,11 +130,14 @@ func (sm *SessionManager) Save(sessionID string, header SessionHeader, messages 
 	return nil
 }
 
-// Load loads a session from disk.
+// Load loads a session from disk, returning messages in file order.
+// For tree-based context reconstruction, use LoadContextFromLeaf instead.
 func (sm *SessionManager) Load(sessionID string) (SessionHeader, []AgentMessage, error) {
-	sm.mu.Lock()
-	defer sm.mu.Unlock()
+	return sm.loadSession(sessionID)
+}
 
+// loadSession is the internal implementation shared by Load and LoadContextFromLeaf.
+func (sm *SessionManager) loadSession(sessionID string) (SessionHeader, []AgentMessage, error) {
 	filename := filepath.Join(sm.sessionsDir, sessionID+".json")
 	data, err := os.ReadFile(filename)
 	if err != nil {
@@ -139,11 +165,147 @@ func (sm *SessionManager) Load(sessionID string) (SessionHeader, []AgentMessage,
 				Timestamp:     entry.Timestamp,
 				CWD:           entry.CWD,
 				ParentSession: entry.ParentSession,
+				LeafID:        entry.FromID, // LeafID stored in FromID field
 			}
 		case "message":
 			if entry.Message != nil {
 				messages = append(messages, *entry.Message)
 			}
+		}
+	}
+
+	return header, messages, nil
+}
+
+// LoadContextFromLeaf reconstructs the conversation context by walking the
+// parentId chain backwards from a given leaf entry ID to the root, then
+// reversing to produce messages in chronological order.
+// If leafID is empty, returns messages in file order (same as Load).
+func (sm *SessionManager) LoadContextFromLeaf(sessionID, leafID string) (SessionHeader, []AgentMessage, error) {
+	sm.mu.Lock()
+	defer sm.mu.Unlock()
+
+	visited := make(map[string]bool)
+	return sm.loadContextFromLeafLocked(sessionID, leafID, visited)
+}
+
+func (sm *SessionManager) loadContextFromLeafLocked(sessionID, leafID string, visited map[string]bool) (SessionHeader, []AgentMessage, error) {
+	filename := filepath.Join(sm.sessionsDir, sessionID+".json")
+	data, err := os.ReadFile(filename)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return SessionHeader{}, nil, fmt.Errorf("session not found: %s", sessionID)
+		}
+		return SessionHeader{}, nil, fmt.Errorf("cannot read session: %w", err)
+	}
+
+	var entries []SessionEntry
+	if err := json.Unmarshal(data, &entries); err != nil {
+		return SessionHeader{}, nil, fmt.Errorf("cannot parse session: %w", err)
+	}
+
+	// Build lookup maps
+	entryByID := make(map[string]SessionEntry)
+	var header SessionHeader
+	for _, entry := range entries {
+		entryByID[entry.ID] = entry
+		if entry.Type == "session" {
+			header = SessionHeader{
+				Type:          entry.Type,
+				Version:       entry.Version,
+				ID:            entry.ID,
+				Timestamp:     entry.Timestamp,
+				CWD:           entry.CWD,
+				ParentSession: entry.ParentSession,
+				LeafID:        entry.FromID,
+			}
+		}
+	}
+
+	if leafID == "" {
+		// No leaf specified — return all messages in file order
+		var messages []AgentMessage
+		for _, entry := range entries {
+			if entry.Type == "message" && entry.Message != nil {
+				messages = append(messages, *entry.Message)
+			}
+		}
+		if header.ParentSession != "" {
+			parentHeader, parentMessages, err := sm.loadContextFromLeafLocked(header.ParentSession, header.LeafID, visited)
+			if err == nil {
+				_ = parentHeader
+				allMessages := make([]AgentMessage, 0, len(parentMessages)+len(messages))
+				allMessages = append(allMessages, parentMessages...)
+				allMessages = append(allMessages, messages...)
+				messages = allMessages
+			}
+		}
+		return header, messages, nil
+	}
+
+	// Walk backwards from leafID through parentId chain
+	type chainNode struct {
+		entryID string
+		msg     AgentMessage
+	}
+	var chain []chainNode
+	currentID := leafID
+
+	for currentID != "" {
+		e, ok := entryByID[currentID]
+		if !ok {
+			break
+		}
+		if visited[currentID] {
+			return header, nil, fmt.Errorf("circular parent reference detected at entry %s in session %s", currentID, sessionID)
+		}
+		visited[currentID] = true
+		if e.Type == "message" && e.Message != nil {
+			chain = append(chain, chainNode{entryID: e.ID, msg: *e.Message})
+		}
+		currentID = e.ParentID
+	}
+
+	// Reverse the chain to get chronological order (root -> leaf)
+	var messages []AgentMessage
+	if len(chain) > 0 {
+		messages = make([]AgentMessage, len(chain))
+		for i, node := range chain {
+			messages[len(chain)-1-i] = node.msg
+		}
+	}
+
+	if currentID != "" && header.ParentSession != "" {
+		_, parentMessages, err := sm.loadContextFromLeafLocked(header.ParentSession, currentID, visited)
+		if err == nil {
+			allMessages := make([]AgentMessage, 0, len(parentMessages)+len(messages))
+			allMessages = append(allMessages, parentMessages...)
+			allMessages = append(allMessages, messages...)
+			messages = allMessages
+		}
+	} else if len(chain) == 0 {
+		// Fallback: no chain found, return all messages in file order
+		for _, entry := range entries {
+			if entry.Type == "message" && entry.Message != nil {
+				messages = append(messages, *entry.Message)
+			}
+		}
+		if header.ParentSession != "" {
+			_, parentMessages, err := sm.loadContextFromLeafLocked(header.ParentSession, header.LeafID, visited)
+			if err == nil {
+				allMessages := make([]AgentMessage, 0, len(parentMessages)+len(messages))
+				allMessages = append(allMessages, parentMessages...)
+				allMessages = append(allMessages, messages...)
+				messages = allMessages
+			}
+		}
+	} else if header.ParentSession != "" {
+		_, parentMessages, err := sm.loadContextFromLeafLocked(header.ParentSession, header.LeafID, visited)
+		if err == nil {
+			allMessages := make([]AgentMessage, 0, len(parentMessages)+len(messages))
+			allMessages = append(allMessages, parentMessages...)
+			allMessages = append(allMessages, messages...)
+			messages = allMessages
 		}
 	}
 
@@ -192,6 +354,12 @@ func (sm *SessionManager) List() ([]SessionInfo, error) {
 			case "session":
 				info.Timestamp = e.Timestamp
 				info.CWD = e.CWD
+				info.Name = e.FromID // FromID used as session name
+				info.ParentSession = e.ParentSession
+				// Check if there's a name stored in FromID
+				if e.FromID != "" && !strings.HasPrefix(e.FromID, "session_") {
+					info.Name = e.FromID
+				}
 			case "message":
 				info.MessageCount++
 				if info.Preview == "" && e.Message != nil && e.Message.Content != "" {
@@ -256,8 +424,12 @@ func (sm *SessionManager) PruneOldSessions(maxAge time.Duration) (int, error) {
 }
 
 // ForkSession creates a new session branching from an existing one.
+// Unlike the old deep-copy approach, this stores only the new messages with
+// ParentID pointing back to the fork point, and the header's ParentSession
+// links to the parent session file. Context reconstruction via LoadContextFromLeaf
+// walks the parentSession chain to include ancestor messages.
 func (sm *SessionManager) ForkSession(parentID, newID string, newMessages []AgentMessage) error {
-	header, messages, err := sm.Load(parentID)
+	header, _, err := sm.Load(parentID)
 	if err != nil {
 		return fmt.Errorf("cannot load parent session: %w", err)
 	}
@@ -266,9 +438,14 @@ func (sm *SessionManager) ForkSession(parentID, newID string, newMessages []Agen
 	header.ParentSession = parentID
 	header.Timestamp = time.Now().Format(time.RFC3339)
 
-	allMessages := append(messages, newMessages...)
+	// Set ParentLeafID to link the first new message's ParentID to the parent session's leaf
+	// so the chain connects across session files for context reconstruction
+	if len(newMessages) > 0 && header.LeafID != "" {
+		header.ParentLeafID = header.LeafID
+	}
 
-	return sm.Save(newID, header, allMessages)
+	// Only store new messages (delta), not a deep copy of parent messages
+	return sm.Save(newID, header, newMessages)
 }
 
 // CurrentSessionID generates a new session ID.

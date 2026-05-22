@@ -1,0 +1,21 @@
+id = "rho.notify"
+name = "Notify Extension"
+version = "1.0.0"
+description = "Desktop and terminal notifications for long-running tasks."
+
+[entry]
+command = "./notify"
+
+[capabilities]
+tools = true
+commands = false
+skills = false
+prompts = false
+
+[[tools]]
+id = "notify"
+description = "Send a desktop notification (or terminal bell) with an optional message."
+
+[[tools]]
+id = "notify_after"
+description = "Execute a command and send a notification when it completes."

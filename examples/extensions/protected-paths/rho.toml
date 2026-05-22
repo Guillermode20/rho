@@ -1,0 +1,25 @@
+id = "rho.protected-paths"
+name = "Protected Paths Extension"
+version = "1.0.0"
+description = "Protects specified files and directories from agent modifications."
+
+[entry]
+command = "./protected-paths"
+
+[capabilities]
+tools = true
+commands = true
+skills = false
+prompts = false
+
+[[tools]]
+id = "check_path_protected"
+description = "Check if a file path matches any protected patterns (e.g., .env files, credentials)."
+
+[[commands]]
+id = "protect-add"
+description = "Add a path pattern to the protected list."
+
+[[commands]]
+id = "protect-list"
+description = "List all protected path patterns."

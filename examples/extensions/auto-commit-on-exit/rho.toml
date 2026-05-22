@@ -1,0 +1,21 @@
+id = "rho.auto-commit-on-exit"
+name = "Auto-Commit on Exit Extension"
+version = "1.0.0"
+description = "Automatically commits changes when the agent finishes processing."
+
+[entry]
+command = "./auto-commit-on-exit"
+
+[capabilities]
+tools = true
+commands = true
+skills = false
+prompts = false
+
+[[tools]]
+id = "auto_commit"
+description = "Automatically stage and commit all current changes with a descriptive message."
+
+[[commands]]
+id = "auto-commit"
+description = "Toggle auto-commit mode on or off."

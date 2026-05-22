@@ -1,0 +1,21 @@
+id = "rho.interactive-shell"
+name = "Interactive Shell Extension"
+version = "1.0.0"
+description = "Maintains a persistent shell session for stateful commands."
+
+[entry]
+command = "./interactive-shell"
+
+[capabilities]
+tools = true
+commands = true
+skills = false
+prompts = false
+
+[[tools]]
+id = "shell_session"
+description = "Run a command in an interactive shell session that maintains state."
+
+[[commands]]
+id = "shell"
+description = "Manage interactive shell sessions: /shell start|stop|<command>"

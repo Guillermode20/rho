@@ -1,0 +1,25 @@
+id = "rho.hidden-thinking-label"
+name = "Hidden Thinking Label Extension"
+version = "1.0.0"
+description = "Shows a visible thinking indicator when the model is reasoning."
+
+[entry]
+command = "./hidden-thinking-label"
+
+[capabilities]
+tools = true
+commands = true
+skills = false
+prompts = false
+
+[[tools]]
+id = "show_thinking"
+description = "Display a visible thinking/running indicator in the UI status."
+
+[[tools]]
+id = "clear_thinking"
+description = "Clear the thinking/running indicator from the UI status."
+
+[[commands]]
+id = "thinking-status"
+description = "Toggle the thinking status indicator on/off."

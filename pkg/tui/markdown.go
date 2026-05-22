@@ -28,10 +28,10 @@ func DefaultMarkdownTheme() MarkdownTheme {
 	reset := th.Reset()
 	bold := th.ansi.bold
 	dim := th.ansi.dim
-	fg75 := th.ansi.fg(75)  // accent blue for headings
-	fg120 := th.ansi.fg(120) // green for code
-	fg221 := th.ansi.fg(221) // amber for inline code
-	fg242 := th.ansi.fg(242) // dim gray for metadata
+	fg75 := th.ansi.fg(Color{ANSI: 75})  // accent blue for headings
+	fg120 := th.ansi.fg(Color{ANSI: 120}) // green for code
+	fg221 := th.ansi.fg(Color{ANSI: 221}) // amber for inline code
+	fg242 := th.ansi.fg(Color{ANSI: 242}) // dim gray for metadata
 
 	return MarkdownTheme{
 		H1: func(text string) string { return bold + fg75 + text + reset },

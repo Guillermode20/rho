@@ -1,7 +1,7 @@
 package codecore
 
 import (
-	"fmt"
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"sync"
@@ -170,22 +170,11 @@ func (tc *TelemetryCollector) flush() {
 	defer f.Close()
 
 	for _, event := range tc.events {
-		line := fmt.Sprintf(`{"type":"%s","timestamp":%d,"sessionId":"%s"`,
-			event.Type, event.Timestamp, event.SessionID)
-		if len(event.Data) > 0 {
-			line += `,"data":{`
-			first := true
-			for k, v := range event.Data {
-				if !first {
-					line += ","
-				}
-				line += fmt.Sprintf(`"%s":%v`, k, v)
-				first = false
-			}
-			line += "}"
+		data, err := json.Marshal(event)
+		if err == nil {
+			f.Write(data)
+			f.WriteString("\n")
 		}
-		line += "}\n"
-		f.WriteString(line)
 	}
 
 	tc.events = tc.events[:0]

@@ -1,0 +1,33 @@
+id = "rho.bookmark"
+name = "Bookmark Extension"
+version = "1.0.0"
+description = "Bookmark important messages in the conversation for later reference."
+
+[entry]
+command = "./bookmark"
+
+[capabilities]
+tools = true
+commands = true
+skills = false
+prompts = false
+
+[[tools]]
+id = "add_bookmark"
+description = "Bookmark the current point in the conversation with a descriptive name."
+
+[[tools]]
+id = "list_bookmarks"
+description = "List all bookmarks in the conversation."
+
+[[commands]]
+id = "bookmark"
+description = "Create a bookmark at the current position."
+
+[[commands]]
+id = "bookmarks"
+description = "List all bookmarks."
+
+[[commands]]
+id = "goto-bookmark"
+description = "Navigate to a specific bookmark by id."

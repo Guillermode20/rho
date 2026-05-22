@@ -1,0 +1,25 @@
+id = "rho.minimal-mode"
+name = "Minimal Mode Extension"
+version = "1.0.0"
+description = "Switch to a minimal UI display mode."
+
+[entry]
+command = "./minimal-mode"
+
+[capabilities]
+tools = true
+commands = true
+skills = false
+prompts = false
+
+[[tools]]
+id = "set_display_mode"
+description = "Control the UI display mode: 'normal' or 'minimal'."
+
+[[commands]]
+id = "minimal"
+description = "Toggle minimal mode on/off."
+
+[[commands]]
+id = "focus"
+description = "Toggle focus mode on/off."

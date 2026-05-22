@@ -38,3 +38,7 @@ examples/extensions/*.so
 examples/extensions/subagent/subagent
 
 pi
+
+.antigravitycli
+.agents
+.codex

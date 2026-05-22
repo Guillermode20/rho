@@ -7,6 +7,7 @@ import (
 
 	"github.com/earendil-works/rho/pkg/agent"
 	"github.com/earendil-works/rho/pkg/agent/auth"
+	"github.com/earendil-works/rho/pkg/agent/compaction"
 	"github.com/earendil-works/rho/pkg/agent/extensions"
 	"github.com/earendil-works/rho/pkg/agent/tools"
 	"github.com/earendil-works/rho/pkg/ai"
@@ -57,10 +58,65 @@ type AgentSessionRuntime struct {
 
 // NewAgentSessionRuntime creates a new session runtime.
 func NewAgentSessionRuntime(sessionID string, opts CreateAgentSessionRuntimeOptions) *AgentSessionRuntime {
+	// Create compacter for context compaction
+	compacter := compaction.NewCompacter(compaction.DefaultCompactionSettings())
+
 	loop := agent.NewAgentLoop(agent.AgentLoopConfig{
 		Model:        opts.Model,
 		SystemPrompt: opts.SystemPrompt,
 		APIKey:       opts.APIKey,
+		BeforeProviderRequest: func(ctx ai.Context) (ai.Context, error) {
+			if opts.Extensions != nil {
+				extCtx := extensions.ExtensionContext{
+					HasUI: false,
+					CWD:   opts.CWD,
+				}
+				result, err := opts.Extensions.FireBeforeProviderRequest(extCtx, extensions.BeforeProviderRequestEvent{
+					Payload: ctx,
+				})
+				if err == nil && result != nil {
+					if modifiedCtx, ok := result.(ai.Context); ok {
+						return modifiedCtx, nil
+					}
+				}
+			}
+			return ctx, nil
+		},
+		CompactFn: func(messages []agent.AgentMessage) ([]agent.AgentMessage, error) {
+			// Convert agent messages to compaction messages
+			compactMsgs := make([]compaction.Message, len(messages))
+			for i, m := range messages {
+				compactMsgs[i] = compaction.Message{
+					Role:    string(m.Role),
+					Content: m.Content,
+				}
+			}
+
+			// Check if compaction is needed (estimate 100K context window)
+			if !compacter.ShouldCompactWith(compactMsgs, 100000) {
+				return messages, nil
+			}
+
+			cutPoint := compaction.FindCutPoint(compactMsgs, 100000, compaction.DefaultCompactionSettings())
+			if cutPoint == nil {
+				return messages, nil
+			}
+
+			result, err := compaction.Compact(compactMsgs, cutPoint, nil)
+			if err != nil {
+				return messages, nil
+			}
+
+			// Convert back to agent messages
+			newMsgs := make([]agent.AgentMessage, len(result.Messages))
+			for i, m := range result.Messages {
+				newMsgs[i] = agent.AgentMessage{
+					Role:    ai.Role(m.Role),
+					Content: m.Content,
+				}
+			}
+			return newMsgs, nil
+		},
 	})
 
 	return &AgentSessionRuntime{
@@ -147,6 +203,15 @@ func (r *AgentSessionRuntime) SendMessage(content string) (*agent.AgentMessage, 
 		Tools:        allTools,
 	}
 
+	// Fire turn start
+	turnIndex := r.turnCount
+	if r.extRuntime != nil {
+		extCtx := r.buildExtensionContext()
+		r.extRuntime.FireTurnStart(extCtx, extensions.TurnStartEvent{
+			TurnIndex: turnIndex,
+		})
+	}
+
 	// Fire agent start
 	if r.extRuntime != nil {
 		extCtx := r.buildExtensionContext()
@@ -165,11 +230,19 @@ func (r *AgentSessionRuntime) SendMessage(content string) (*agent.AgentMessage, 
 		})
 	}
 
-	// Create prompt
-	prompt := agent.AgentMessage{
-		Role:      ai.RoleUser,
-		Content:   content,
-		Timestamp: time.Now().UnixMilli(),
+	// Fire context event — allows extensions to inject or modify messages
+	allPrompts := []agent.AgentMessage{
+		{Role: ai.RoleUser, Content: content, Timestamp: time.Now().UnixMilli()},
+	}
+	if r.extRuntime != nil {
+		extCtx := r.buildExtensionContext()
+		extraMsgs, err := r.extRuntime.FireContext(extCtx, extensions.ContextEvent{
+			Messages: allPrompts,
+		})
+		if err == nil && len(extraMsgs) > 0 {
+			// Prepend context messages before the user prompt
+			allPrompts = append(extraMsgs, allPrompts...)
+		}
 	}
 
 	// Run agent loop
@@ -183,7 +256,7 @@ func (r *AgentSessionRuntime) SendMessage(content string) (*agent.AgentMessage, 
 		return nil
 	}
 
-	results, err := r.agent.Run([]agent.AgentMessage{prompt}, context, emit)
+	results, err := r.agent.Run(allPrompts, context, emit)
 	if err != nil {
 		return nil, fmt.Errorf("agent run failed: %w", err)
 	}
@@ -197,10 +270,10 @@ func (r *AgentSessionRuntime) SendMessage(content string) (*agent.AgentMessage, 
 		}
 	}
 
-	// Track stats
+	// Track stats — save all messages (including context-injected ones) to history
 	r.mu.Lock()
 	r.turnCount++
-	r.messages = append(r.messages, prompt)
+	r.messages = append(r.messages, allPrompts...) // all prompts including injected context
 	if response != nil {
 		r.messages = append(r.messages, *response)
 		if response.Usage != nil {
@@ -221,6 +294,19 @@ func (r *AgentSessionRuntime) SendMessage(content string) (*agent.AgentMessage, 
 		msgs := r.messages
 		r.mu.RUnlock()
 		r.sessionMgr.Save(r.sessionID, header, msgs)
+	}
+
+	// Fire turn end
+	if r.extRuntime != nil {
+		extCtx := r.buildExtensionContext()
+		var respMsg agent.AgentMessage
+		if response != nil {
+			respMsg = *response
+		}
+		r.extRuntime.FireTurnEnd(extCtx, extensions.TurnEndEvent{
+			TurnIndex: turnIndex,
+			Message:   respMsg,
+		})
 	}
 
 	// Fire agent end

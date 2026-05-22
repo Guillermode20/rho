@@ -1,0 +1,17 @@
+id = "rho.git-checkpoint"
+name = "Git Checkpoint Extension"
+version = "1.0.0"
+description = "Automatically creates git checkpoints before agent modifications."
+
+[entry]
+command = "./git-checkpoint"
+
+[capabilities]
+tools = true
+commands = false
+skills = false
+prompts = false
+
+[[tools]]
+id = "git_checkpoint"
+description = "Create a git checkpoint commit with a summary of current changes. Useful before making risky changes to have a rollback point."

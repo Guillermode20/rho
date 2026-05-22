@@ -143,6 +143,18 @@ func (l *AgentLoop) runLoop(emit AgentEventCallback) ([]AgentMessage, error) {
 			l.context.Messages = append(l.context.Messages, trMsg)
 		}
 
+		// Compact context if configured
+		if l.config.CompactFn != nil {
+			compacted, err := l.config.CompactFn(l.context.Messages)
+			if err == nil && len(compacted) < len(l.context.Messages) {
+				l.context.Messages = compacted
+				emit(AgentEvent{
+					Type:    "compaction",
+					Message: &AgentMessage{Content: fmt.Sprintf("Compacted context from %d to %d messages", len(l.context.Messages), len(compacted))},
+				})
+			}
+		}
+
 		// Continue loop for next turn
 	}
 
@@ -217,6 +229,15 @@ func (l *AgentLoop) streamResponse(llmCtx ai.Context, emit AgentEventCallback) (
 		options.Reasoning = l.config.ThinkingLevel
 	}
 
+	// Fire before-provider-request hook
+	finalLLMCtx := llmCtx
+	if l.config.BeforeProviderRequest != nil {
+		modifiedCtx, err := l.config.BeforeProviderRequest(llmCtx)
+		if err == nil {
+			finalLLMCtx = modifiedCtx
+		}
+	}
+
 	msg := &AgentMessage{
 		Role:     ai.RoleAssistant,
 		API:      l.config.Model.API,
@@ -228,7 +249,7 @@ func (l *AgentLoop) streamResponse(llmCtx ai.Context, emit AgentEventCallback) (
 	var currentText string
 	var currentToolCalls []ai.ToolCall
 
-	err := streamFn(l.config.Model, llmCtx, options, func(event ai.StreamEvent) error {
+	err := streamFn(l.config.Model, finalLLMCtx, options, func(event ai.StreamEvent) error {
 		if l.isAborted() {
 			msg.StopReason = ai.StopReasonAborted
 			msg.ErrorMessage = "Operation aborted"

@@ -12,6 +12,11 @@ type Context struct {
 	sdk *SDK
 }
 
+// HasUI returns true if the host supports interactive UI operations.
+func (c Context) HasUI() bool {
+	return c.sdk.hasUI
+}
+
 // Confirm displays a confirmation dialog on the host.
 func (c Context) Confirm(title, message string) (bool, error) {
 	return c.sdk.confirm(title, message)
@@ -48,6 +53,7 @@ type SDK struct {
 	id       string
 	tools    map[string]toolDef
 	commands map[string]CommandHandler
+	hasUI    bool
 
 	mu      sync.Mutex
 	pending map[string]chan *RPCMessage
@@ -84,6 +90,11 @@ func New(id string) *SDK {
 		commands: make(map[string]CommandHandler),
 		pending:  make(map[string]chan *RPCMessage),
 	}
+}
+
+// SetUI enables UI capabilities for this extension.
+func (s *SDK) SetUI(enabled bool) {
+	s.hasUI = enabled
 }
 
 // Tool registers a tool handler.

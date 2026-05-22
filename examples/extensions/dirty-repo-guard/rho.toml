@@ -1,0 +1,21 @@
+id = "rho.dirty-repo-guard"
+name = "Dirty Repo Guard Extension"
+version = "1.0.0"
+description = "Checks for uncommitted changes before agent modifications."
+
+[entry]
+command = "./dirty-repo-guard"
+
+[capabilities]
+tools = true
+commands = true
+skills = false
+prompts = false
+
+[[tools]]
+id = "check_repo_clean"
+description = "Check if the git repository has uncommitted changes. Warns if the repo is dirty."
+
+[[commands]]
+id = "repo-status"
+description = "Show the current git repository status."

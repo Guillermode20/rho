@@ -1,36 +1,28 @@
-// Package skills manages skill files — reusable markdown snippets with YAML frontmatter
-// that can be injected into the system prompt.
 package skills
 
 import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"regexp"
 	"sort"
 	"strings"
 )
 
 // Skill represents a loaded skill with parsed frontmatter.
 type Skill struct {
-	Name        string `json:"name"`
-	Description string `json:"description"`
-	Content     string `json:"content"`
-	SourceFile  string `json:"sourceFile,omitempty"`
-	Tags        []string `json:"tags,omitempty"`
-	Glob        string `json:"glob,omitempty"` // File pattern this skill applies to
-}
-
-// SkillFrontmatter is the parsed YAML frontmatter of a skill file.
-type SkillFrontmatter struct {
-	Name        string   `yaml:"name"`
-	Description string   `yaml:"description"`
-	Tags        []string `yaml:"tags,omitempty"`
-	Glob        string   `yaml:"glob,omitempty"`
+	Name                   string   `json:"name"`
+	Description            string   `json:"description"`
+	Content                string   `json:"content"`
+	SourceFile             string   `json:"sourceFile,omitempty"`
+	Tags                   []string `json:"tags,omitempty"`
+	Glob                   string   `json:"glob,omitempty"`
+	DisableModelInvocation bool     `json:"disableModelInvocation,omitempty"`
 }
 
 // LoadSkillsResult summarizes a skill loading operation.
 type LoadSkillsResult struct {
-	Loaded  []Skill `json:"loaded"`
+	Loaded  []Skill  `json:"loaded"`
 	Errors  []string `json:"errors"`
 	Skipped int      `json:"skipped"`
 }
@@ -49,43 +41,48 @@ func LoadSkills(dirs []string) *LoadSkillsResult {
 	return result
 }
 
-// LoadSkillsFromDir loads skills from a single directory.
+// LoadSkillsFromDir recursively loads skills from a directory.
 // Scans for .md and .mdx files with YAML frontmatter.
 func LoadSkillsFromDir(dir string) *LoadSkillsResult {
 	result := &LoadSkillsResult{}
 
-	entries, err := os.ReadDir(dir)
-	if err != nil {
-		if !os.IsNotExist(err) {
-			result.Errors = append(result.Errors, fmt.Sprintf("cannot read %s: %v", dir, err))
-		}
-		return result
-	}
-
-	for _, entry := range entries {
-		if entry.IsDir() {
-			continue
-		}
-
-		ext := strings.ToLower(filepath.Ext(entry.Name()))
-		if ext != ".md" && ext != ".mdx" {
-			continue
-		}
-
-		skill, err := parseSkillFile(filepath.Join(dir, entry.Name()))
+	filepath.Walk(dir, func(path string, info os.FileInfo, err error) error {
 		if err != nil {
-			result.Errors = append(result.Errors, fmt.Sprintf("%s: %v", entry.Name(), err))
+			return nil
+		}
+
+		if info.IsDir() {
+			if strings.HasPrefix(info.Name(), ".") && info.Name() != "." {
+				return filepath.SkipDir
+			}
+			if info.Name() == "node_modules" || info.Name() == "vendor" {
+				return filepath.SkipDir
+			}
+			return nil
+		}
+
+		ext := strings.ToLower(filepath.Ext(info.Name()))
+		if ext != ".md" && ext != ".mdx" {
+			return nil
+		}
+
+		skill, err := parseSkillFile(path)
+		if err != nil {
+			result.Errors = append(result.Errors, fmt.Sprintf("%s: %v", info.Name(), err))
 			result.Skipped++
-			continue
+			return nil
 		}
 
 		if skill != nil {
 			result.Loaded = append(result.Loaded, *skill)
 		}
-	}
+		return nil
+	})
 
 	return result
 }
+
+var skillNameRegex = regexp.MustCompile(`^[a-z0-9-]+$`)
 
 // parseSkillFile parses a single skill markdown file with YAML frontmatter.
 func parseSkillFile(path string) (*Skill, error) {
@@ -101,6 +98,7 @@ func parseSkillFile(path string) (*Skill, error) {
 	desc := ""
 	var tags []string
 	glob := ""
+	disableModel := false
 	body := content
 
 	if strings.HasPrefix(content, "---") {
@@ -109,7 +107,7 @@ func parseSkillFile(path string) (*Skill, error) {
 			fm := strings.TrimSpace(parts[0])
 			body = strings.TrimSpace(parts[1])
 
-			// Very simple frontmatter parser
+			// Simple frontmatter parser
 			lines := strings.Split(fm, "\n")
 			for _, line := range lines {
 				line = strings.TrimSpace(line)
@@ -133,40 +131,62 @@ func parseSkillFile(path string) (*Skill, error) {
 				case strings.HasPrefix(line, "glob:"):
 					glob = strings.TrimSpace(strings.TrimPrefix(line, "glob:"))
 					glob = strings.Trim(glob, "\"'")
+				case strings.HasPrefix(line, "disable-model-invocation:"):
+					val := strings.TrimSpace(strings.TrimPrefix(line, "disable-model-invocation:"))
+					if val == "true" {
+						disableModel = true
+					}
 				}
 			}
 		}
 	}
 
+	if len(name) > 64 {
+		return nil, fmt.Errorf("name exceeds 64 characters")
+	}
+	if !skillNameRegex.MatchString(name) {
+		return nil, fmt.Errorf("name must match ^[a-z0-9-]+$")
+	}
+	if desc == "" {
+		return nil, fmt.Errorf("description is required")
+	}
+	if len(desc) > 1024 {
+		return nil, fmt.Errorf("description exceeds 1024 characters")
+	}
+
 	return &Skill{
-		Name:        name,
-		Description: desc,
-		Content:     body,
-		SourceFile:  path,
-		Tags:        tags,
-		Glob:        glob,
+		Name:                   name,
+		Description:            desc,
+		Content:                body,
+		SourceFile:             path,
+		Tags:                   tags,
+		Glob:                   glob,
+		DisableModelInvocation: disableModel,
 	}, nil
 }
 
-// FormatSkillsForPrompt formats loaded skills for inclusion in the system prompt.
+// FormatSkillsForPrompt formats loaded skills into an XML index for lazy loading.
 func FormatSkillsForPrompt(skills []Skill) string {
 	if len(skills) == 0 {
 		return ""
 	}
 
 	var parts []string
-	parts = append(parts, "--- Skills ---")
+	parts = append(parts, "<available_skills>")
 
 	for _, skill := range skills {
-		if skill.Description != "" {
-			parts = append(parts, fmt.Sprintf("## %s", skill.Name))
-			parts = append(parts, "")
-			parts = append(parts, skill.Description)
-			parts = append(parts, "")
+		if skill.DisableModelInvocation {
+			continue
 		}
-		parts = append(parts, skill.Content)
-		parts = append(parts, "")
+		parts = append(parts, "  <skill>")
+		parts = append(parts, fmt.Sprintf("    <name>%s</name>", skill.Name))
+		parts = append(parts, fmt.Sprintf("    <description>%s</description>", skill.Description))
+		parts = append(parts, fmt.Sprintf("    <location>%s</location>", skill.SourceFile))
+		parts = append(parts, "  </skill>")
 	}
+
+	parts = append(parts, "</available_skills>")
+	parts = append(parts, "To view the full instructions of a skill, use your `Read` tool on its `<location>` path.")
 
 	return strings.Join(parts, "\n")
 }

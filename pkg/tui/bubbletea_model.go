@@ -136,6 +136,8 @@ func (m *BTModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		for _, child := range m.Children {
 			child.Invalidate()
 		}
+		// Also send clear command for any Kitty images
+		cmds = append(cmds, tea.Printf("\x1b_Ga=d,d=A,q=2\x1b\\"))
 	}
 
 	return m, tea.Batch(cmds...)

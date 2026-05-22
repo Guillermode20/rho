@@ -1,0 +1,33 @@
+id = "rho.file-trigger"
+name = "File Trigger Extension"
+version = "1.0.0"
+description = "Watch files for changes and trigger commands."
+
+[entry]
+command = "./file-trigger"
+
+[capabilities]
+tools = true
+commands = true
+skills = false
+prompts = false
+
+[[tools]]
+id = "watch_file"
+description = "Watch a file pattern and run a command when matching files change."
+
+[[tools]]
+id = "trigger_now"
+description = "Immediately trigger file watches for testing."
+
+[[commands]]
+id = "watch"
+description = "Add a file watch: /watch <pattern> <command>"
+
+[[commands]]
+id = "watches"
+description = "List all configured file watches."
+
+[[commands]]
+id = "unwatch"
+description = "Remove a file watch: /unwatch <pattern>"

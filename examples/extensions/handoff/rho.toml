@@ -1,0 +1,21 @@
+id = "rho.handoff"
+name = "Handoff Extension"
+version = "1.0.0"
+description = "Transfer context to a new focused session."
+
+[entry]
+command = "./handoff"
+
+[capabilities]
+tools = true
+commands = true
+skills = false
+prompts = false
+
+[[tools]]
+id = "handoff"
+description = "Transfer context to a new focused session with a generated prompt."
+
+[[commands]]
+id = "handoff"
+description = "Create a handoff to a new session focused on a specific task."

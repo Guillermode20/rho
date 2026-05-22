@@ -13,38 +13,64 @@ import (
 // The design is minimalist: subtle neutrals, a single accent hue, lots of
 // breathing room, and thin borders.
 
-// Palette groups named ANSI 256‑color values for the whole UI.
+// Color represents a terminal color. It can be an ANSI 256‑color number
+// or a hex string (e.g. "#ffffff").
+type Color struct {
+	ANSI int
+	Hex  string
+}
+
+// ParseHexColor parses a hex color string (e.g., "#ffffff", "#fff", "ff0000") into RGB values.
+func ParseHexColor(s string) (r, g, b int, err error) {
+	s = strings.TrimPrefix(s, "#")
+	if len(s) == 3 {
+		format := "%1x%1x%1x"
+		var r8, g8, b8 int
+		_, err = fmt.Sscanf(s, format, &r8, &g8, &b8)
+		if err != nil {
+			return 0, 0, 0, err
+		}
+		return r8 * 17, g8 * 17, b8 * 17, nil
+	} else if len(s) == 6 {
+		format := "%02x%02x%02x"
+		_, err = fmt.Sscanf(s, format, &r, &g, &b)
+		return r, g, b, err
+	}
+	return 0, 0, 0, fmt.Errorf("invalid hex color: %s", s)
+}
+
+// Palette groups named ANSI/Hex color values for the whole UI.
 type Palette struct {
 	// Core
-	Bg         int // base background
-	Fg         int // default foreground
-	Accent     int // interactive / focused elements
-	AccentAlt  int // secondary accent (e.g. assistant name)
-	Success    int // success / user messages
-	Warning    int // warnings
-	Error      int // errors
-	Dim        int // muted / secondary text
-	Border     int // border lines
-	Highlight  int // selection highlight bg
-	Surface    int // card / panel bg (slightly lighter than Bg)
-	SurfaceAlt int // alternate surface bg
+	Bg         Color // base background
+	Fg         Color // default foreground
+	Accent     Color // interactive / focused elements
+	AccentAlt  Color // secondary accent (e.g. assistant name)
+	Success    Color // success / user messages
+	Warning    Color // warnings
+	Error      Color // errors
+	Dim        Color // muted / secondary text
+	Border     Color // border lines
+	Highlight  Color // selection highlight bg
+	Surface    Color // card / panel bg (slightly lighter than Bg)
+	SurfaceAlt Color // alternate surface bg
 }
 
 // DefaultPalette returns the default light‑on‑dark palette.
 func DefaultPalette() Palette {
 	return Palette{
-		Bg:         233,  // near‑black
-		Fg:         252,  // soft white
-		Accent:     75,   // blue
-		AccentAlt:  120,  // green
-		Success:    120,  // green
-		Warning:    214,  // amber
-		Error:      196,  // red
-		Dim:        241,  // medium gray
-		Border:     237,  // subtle border
-		Highlight:  235,  // highlight bg
-		Surface:    234,  // panel bg
-		SurfaceAlt: 235,  // alternate surface
+		Bg:         Color{ANSI: 233}, // near‑black
+		Fg:         Color{ANSI: 252}, // soft white
+		Accent:     Color{ANSI: 75},  // blue
+		AccentAlt:  Color{ANSI: 120}, // green
+		Success:    Color{ANSI: 120}, // green
+		Warning:    Color{ANSI: 214}, // amber
+		Error:      Color{ANSI: 196}, // red
+		Dim:        Color{ANSI: 241}, // medium gray
+		Border:     Color{ANSI: 237}, // subtle border
+		Highlight:  Color{ANSI: 235}, // highlight bg
+		Surface:    Color{ANSI: 234}, // panel bg
+		SurfaceAlt: Color{ANSI: 235}, // alternate surface
 	}
 }
 
@@ -86,8 +112,8 @@ type Theme struct {
 	ansi struct {
 		reset string
 
-		bg    func(int) string
-		fg    func(int) string
+		bg    func(Color) string
+		fg    func(Color) string
 		bold  string
 		dim   string
 		italic string
@@ -98,8 +124,22 @@ type Theme struct {
 func NewTheme(p Palette) *Theme {
 	t := &Theme{Palette: p, Spacing: DefaultSpacing(), Border: BorderLight}
 	t.ansi.reset = "\x1b[0m"
-	t.ansi.bg = func(c int) string { return fmt.Sprintf("\x1b[48;5;%dm", c) }
-	t.ansi.fg = func(c int) string { return fmt.Sprintf("\x1b[38;5;%dm", c) }
+	t.ansi.bg = func(c Color) string {
+		if c.Hex != "" {
+			if r, g, b, err := ParseHexColor(c.Hex); err == nil {
+				return fmt.Sprintf("\x1b[48;2;%d;%d;%dm", r, g, b)
+			}
+		}
+		return fmt.Sprintf("\x1b[48;5;%dm", c.ANSI)
+	}
+	t.ansi.fg = func(c Color) string {
+		if c.Hex != "" {
+			if r, g, b, err := ParseHexColor(c.Hex); err == nil {
+				return fmt.Sprintf("\x1b[38;2;%d;%d;%dm", r, g, b)
+			}
+		}
+		return fmt.Sprintf("\x1b[38;5;%dm", c.ANSI)
+	}
 	t.ansi.bold = "\x1b[1m"
 	t.ansi.dim = "\x1b[2m"
 	t.ansi.italic = "\x1b[3m"
@@ -113,8 +153,8 @@ func (t *Theme) Bold(s string) string   { return t.ansi.bold + s + t.ansi.reset 
 func (t *Theme) Dim(s string) string    { return t.ansi.dim + s + t.ansi.reset }
 func (t *Theme) Italic(s string) string { return t.ansi.italic + s + t.ansi.reset }
 
-func (t *Theme) Colored(s string, c int) string { return t.ansi.fg(c) + s + t.ansi.reset }
-func (t *Theme) Bg(s string, c int) string      { return t.ansi.bg(c) + s + t.ansi.reset }
+func (t *Theme) Colored(s string, c Color) string { return t.ansi.fg(c) + s + t.ansi.reset }
+func (t *Theme) Bg(s string, c Color) string      { return t.ansi.bg(c) + s + t.ansi.reset }
 
 func (t *Theme) Accent(s string) string    { return t.Colored(s, t.Palette.Accent) }
 func (t *Theme) AccentAlt(s string) string { return t.Colored(s, t.Palette.AccentAlt) }

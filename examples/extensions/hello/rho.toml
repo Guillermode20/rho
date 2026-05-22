@@ -1,0 +1,17 @@
+id = "rho.hello"
+name = "Hello Extension"
+version = "1.0.0"
+description = "Minimal example extension that adds a greeting tool."
+
+[entry]
+command = "./hello"
+
+[capabilities]
+tools = true
+commands = false
+skills = false
+prompts = false
+
+[[tools]]
+id = "hello"
+description = "A simple greeting tool. Given a name, returns a friendly greeting."

@@ -17,10 +17,11 @@ import (
 	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
-	"github.com/charmbracelet/lipgloss"
 	"github.com/earendil-works/rho/pkg/agent"
 	"github.com/earendil-works/rho/pkg/agent/auth"
 	"github.com/earendil-works/rho/pkg/agent/codecore"
+	"github.com/earendil-works/rho/pkg/agent/compaction"
+	"github.com/earendil-works/rho/pkg/agent/export"
 	"github.com/earendil-works/rho/pkg/agent/extensions"
 	"github.com/earendil-works/rho/pkg/agent/systemprompt"
 	agenttheme "github.com/earendil-works/rho/pkg/agent/theme"
@@ -28,6 +29,7 @@ import (
 	agentutils "github.com/earendil-works/rho/pkg/agent/utils"
 	"github.com/earendil-works/rho/pkg/ai"
 	"github.com/earendil-works/rho/pkg/ai/providers"
+	"github.com/earendil-works/rho/pkg/agent/ui"
 	"github.com/earendil-works/rho/pkg/tui"
 )
 
@@ -46,95 +48,6 @@ type RuntimeConfig struct {
 	ClipboardWrite func(text string) error
 	OpenURL        func(rawURL string) error
 	OAuthExchange  func(provider ai.OAuthProviderID, code string, pkce *ai.PKCE) (*ai.OAuthCredentials, error)
-}
-
-type chatModel struct {
-	width    int
-	height   int
-	status   string
-	input    []rune
-	cursor   int
-	scroll   int
-	messages []agent.AgentMessage
-	mdTheme  tui.MarkdownTheme
-	// Design system
-	theme *tui.Theme
-
-	// Metadata footer fields
-	modelName     string
-	providerName  string
-	tokenCount    int
-	contextWindow int
-	totalCost     float64
-	gitBranch     string
-
-	// Cached cost map: rebuilt only when needed (lazy, set to nil to force rebuild)
-	costMap      map[string]ai.ModelDefinition
-	costMapDirty bool
-
-	onSubmit          func(string)
-	onMessage         func(tea.Msg)
-	onAutocomplete    func(text string, cursor int) []autocompleteItem
-	onAction          func(action string) bool
-	autocomplete      []autocompleteItem
-	autocompleteIdx   int
-
-	// Modal state — replaces old inline prompt/selector/confirm
-	modal *modalState
-
-	// Toast for brief system notifications
-	toast      string
-	toastUntil time.Time
-
-	// Legacy styles – kept for transition, but theme is primary.
-	statusStyle    lipgloss.Style
-	helpStyle      lipgloss.Style
-	panelStyle     lipgloss.Style
-	inputStyle     lipgloss.Style
-	userStyle      lipgloss.Style
-	assistantStyle lipgloss.Style
-	mutedStyle     lipgloss.Style
-}
-
-const mouseWheelScrollLines = 3
-const toolPreviewLines = 3
-
-type autocompleteItem struct {
-	Value       string
-	Label       string
-	Description string
-}
-
-// modalState drives all centered overlay dialogs.
-type modalState struct {
-	active bool
-	title  string
-	mode   string // "prompt" | "selector" | "confirm" | "info"
-
-	// Prompt mode
-	placeholder string
-	value       []rune
-	onSubmit    func(string)
-	onCancel    func()
-
-	// Selector mode
-	allItems      []autocompleteItem
-	items         []autocompleteItem
-	query         []rune
-	selIdx        int
-	onSelect      func(autocompleteItem)
-	onSelectCancel func()
-
-	// Confirm mode
-	message string
-	onYes   func()
-	onNo    func()
-	confirmIdx int // 0 = Yes, 1 = No
-
-	// Info mode
-	content   []string
-	infoScroll int
-	onDismiss  func()
 }
 
 type agentLoopEventMsg struct {
@@ -178,1349 +91,11 @@ type AgentExtensionStatusMsg struct {
 	Text string
 }
 
-func newChatModel(status string) *chatModel {
-	th := tui.DefaultTheme
-	return &chatModel{
-		status: status,
-		theme:  th,
-		mdTheme: tui.DefaultMarkdownTheme(),
-		statusStyle: lipgloss.NewStyle().
-			Background(lipgloss.Color("235")).
-			Foreground(lipgloss.Color("255")).
-			Padding(0, 1),
-		helpStyle: lipgloss.NewStyle().
-			Foreground(lipgloss.Color("244")).
-			Padding(0, 1),
-		panelStyle: lipgloss.NewStyle().
-			Border(lipgloss.RoundedBorder(), true, false, false, false).
-			BorderForeground(lipgloss.Color("238")).
-			Padding(1, 2, 0, 2),
-		inputStyle: lipgloss.NewStyle().
-			Border(lipgloss.RoundedBorder()).
-			BorderForeground(lipgloss.Color("63")).
-			Padding(0, 1),
-		userStyle: lipgloss.NewStyle().
-			Foreground(lipgloss.Color("75")).
-			Bold(true),
-		assistantStyle: lipgloss.NewStyle().
-			Foreground(lipgloss.Color("120")).
-			Bold(true),
-		mutedStyle: lipgloss.NewStyle().Foreground(lipgloss.Color("242")),
-	}
-}
-
-func (m *chatModel) ApplyTheme(agtTheme agenttheme.Theme) {
-	bg := lipgloss.Color(themeColor(agtTheme, "bg", "235"))
-	fg := lipgloss.Color(themeColor(agtTheme, "fg", "255"))
-	accent := lipgloss.Color(themeColor(agtTheme, "accent", "63"))
-	success := lipgloss.Color(themeColor(agtTheme, "success", "120"))
-	subtle := lipgloss.Color(themeColor(agtTheme, "subtle", "242"))
-
-	// Build new design-system theme from agent theme
-	pal := tui.DefaultPalette()
-	pal.Bg = 235
-	pal.Fg = 255
-	pal.Accent = 63
-	pal.Success = 120
-	pal.Dim = 242
-	pal.Border = 238
-	m.theme = tui.NewTheme(pal)
-
-	m.statusStyle = lipgloss.NewStyle().
-		Background(bg).
-		Foreground(fg).
-		Padding(0, 1)
-	m.helpStyle = lipgloss.NewStyle().
-		Foreground(subtle).
-		Padding(0, 1)
-	m.panelStyle = lipgloss.NewStyle().
-		Border(lipgloss.RoundedBorder(), true, false, false, false).
-		BorderForeground(subtle).
-		Padding(1, 2, 0, 2)
-	m.inputStyle = lipgloss.NewStyle().
-		Border(lipgloss.RoundedBorder()).
-		BorderForeground(accent).
-		Padding(0, 1)
-	m.userStyle = lipgloss.NewStyle().
-		Foreground(success).
-		Bold(true)
-	m.assistantStyle = lipgloss.NewStyle().
-		Foreground(accent).
-		Bold(true)
-	m.mutedStyle = lipgloss.NewStyle().Foreground(subtle)
-	m.mdTheme = markdownThemeFromAgentTheme(agtTheme)
-}
-
-func themeColor(theme agenttheme.Theme, key, fallback string) string {
-	color, ok := theme.Colors[key]
-	if !ok {
-		return fallback
-	}
-	if color.Hex != "" {
-		return color.Hex
-	}
-	if color.ANSI != 0 {
-		return fmt.Sprintf("%d", color.ANSI)
-	}
-	return fallback
-}
-
-func markdownThemeFromAgentTheme(theme agenttheme.Theme) tui.MarkdownTheme {
-	reset := agenttheme.Reset()
-	style := func(name, fallback string) string {
-		if theme.Styles != nil {
-			if value := theme.Styles[name]; value != "" {
-				return value
-			}
-		}
-		return fallback
-	}
-	title := style("title", "\x1b[1;36m")
-	bold := style("bold", "\x1b[1m")
-	italic := style("italic", "\x1b[2m")
-	code := style("code", "\x1b[33m")
-	codeBlock := style("codeblock", code)
-	link := style("link", "\x1b[34m")
-	dim := style("dim", "\x1b[2m")
-	separator := style("separator", dim)
-
-	return tui.MarkdownTheme{
-		H1:         func(text string) string { return title + text + reset },
-		H2:         func(text string) string { return title + text + reset },
-		H3:         func(text string) string { return title + text + reset },
-		Bold:       func(text string) string { return bold + text + reset },
-		Italic:     func(text string) string { return italic + text + reset },
-		Code:       func(text string) string { return code + text + reset },
-		CodeBlock:  func(text string) string { return codeBlock + text + reset },
-		Link:       func(text, url string) string { return link + text + reset + dim + " (" + url + ")" + reset },
-		Blockquote: func(text string) string { return dim + "|" + text + reset },
-		ListBullet: func(text string) string { return "- " + text },
-		ListNumber: func(text string) string { return text },
-		Horizontal: func() string { return separator + strings.Repeat("-", 40) + reset },
-	}
-}
-
-func (m *chatModel) Init() tea.Cmd {
-	return tea.WindowSize()
-}
-
-func (m *chatModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
-	if m.onMessage != nil {
-		m.onMessage(msg)
-	}
-
-	switch msg := msg.(type) {
-	case tea.WindowSizeMsg:
-		m.width = msg.Width
-		m.height = msg.Height
-		m.clampScroll()
-	case tea.MouseMsg:
-		switch {
-		case msg.Button == tea.MouseButtonWheelUp || msg.Type == tea.MouseWheelUp:
-			m.scroll += mouseWheelScrollLines
-			m.clampScroll()
-		case msg.Button == tea.MouseButtonWheelDown || msg.Type == tea.MouseWheelDown:
-			m.scroll -= mouseWheelScrollLines
-			m.clampScroll()
-		}
-	case tea.KeyMsg:
-		// Dismiss toast on any keypress
-		if m.toast != "" {
-			m.toast = ""
-		}
-
-		// Modal takes priority over everything
-		if m.modal != nil {
-			m.handleModalInput(msg)
-			return m, nil
-		}
-
-		if len(m.autocomplete) > 0 {
-			switch msg.String() {
-			case "esc":
-				m.closeAutocomplete()
-				return m, nil
-			case "up", "ctrl+p":
-				if m.autocompleteIdx > 0 {
-					m.autocompleteIdx--
-				}
-				return m, nil
-			case "down", "ctrl+n":
-				if m.autocompleteIdx < len(m.autocomplete)-1 {
-					m.autocompleteIdx++
-				}
-				return m, nil
-			case "pgup":
-				m.autocompleteIdx -= 6
-				if m.autocompleteIdx < 0 {
-					m.autocompleteIdx = 0
-				}
-				return m, nil
-			case "pgdown":
-				m.autocompleteIdx += 6
-				if m.autocompleteIdx >= len(m.autocomplete) {
-					m.autocompleteIdx = len(m.autocomplete) - 1
-				}
-				return m, nil
-			case "home":
-				m.autocompleteIdx = 0
-				return m, nil
-			case "end":
-				m.autocompleteIdx = len(m.autocomplete) - 1
-				return m, nil
-			case "tab", "enter":
-				m.applyAutocomplete()
-				return m, nil
-			}
-		}
-
-		if m.onAction != nil {
-			switch msg.String() {
-			case "ctrl+l":
-				if m.onAction("model.select") {
-					return m, nil
-				}
-			case "ctrl+p":
-				if m.onAction("settings.open") {
-					return m, nil
-				}
-			case "ctrl+r":
-				if m.onAction("session.resume") {
-					return m, nil
-				}
-			case "ctrl+t":
-				if m.onAction("thinking.cycle") {
-					return m, nil
-				}
-			}
-		}
-
-		switch msg.String() {
-		case "ctrl+c":
-			return m, tea.Quit
-		case "pgup":
-			m.scroll += max(1, m.viewportHeight()-1)
-			m.clampScroll()
-		case "pgdown":
-			m.scroll -= max(1, m.viewportHeight()-1)
-			m.clampScroll()
-		case "ctrl+a", "home":
-			m.cursor = 0
-			m.updateAutocomplete()
-		case "ctrl+e", "end":
-			m.cursor = len(m.input)
-			m.updateAutocomplete()
-		case "ctrl+u":
-			m.input = nil
-			m.cursor = 0
-			m.updateAutocomplete()
-		case "ctrl+k":
-			if m.cursor < len(m.input) {
-				m.input = m.input[:m.cursor]
-			}
-			m.updateAutocomplete()
-		case "left":
-			if m.cursor > 0 {
-				m.cursor--
-			}
-			m.updateAutocomplete()
-		case "right":
-			if m.cursor < len(m.input) {
-				m.cursor++
-			}
-			m.updateAutocomplete()
-		case "backspace", "ctrl+h":
-			if m.cursor > 0 {
-				m.input = append(m.input[:m.cursor-1], m.input[m.cursor:]...)
-				m.cursor--
-			}
-			m.updateAutocomplete()
-		case "delete":
-			if m.cursor < len(m.input) {
-				m.input = append(m.input[:m.cursor], m.input[m.cursor+1:]...)
-			}
-			m.updateAutocomplete()
-		case "alt+enter", "ctrl+j":
-			m.insertRunes('\n')
-		case "enter":
-			value := strings.TrimSpace(string(m.input))
-			if value != "" && m.onSubmit != nil {
-				m.onSubmit(value)
-			}
-		case "esc":
-			if m.onAction != nil && m.onAction("agent.abort") {
-				return m, nil
-			}
-		default:
-			if msg.Type == tea.KeyRunes {
-				m.insertRunes(msg.Runes...)
-			} else if msg.Type == tea.KeySpace {
-				m.insertRunes(' ')
-			}
-		}
-	}
-
-	return m, nil
-}
-
-func (m *chatModel) View() string {
-	width := m.width
-	if width <= 0 {
-		width = 80
-	}
-
-	th := m.theme
-	if th == nil {
-		th = tui.DefaultTheme
-	}
-
-	// If a modal is active, render the normal view dimmed with the modal overlaid
-	if m.modal != nil {
-		return m.renderModalView(width)
-	}
-
-	// ── Status bar (minimal) ──
-	status := m.statusStyle.Width(width).Render(tui.SliceByColumn(m.status, 0, max(1, width-2), true))
-
-	// ── Contextual hint (very subtle) ──
-	var hint string
-	if len(m.messages) == 0 {
-		hint = th.Muted("Type a message and press Enter  Ctrl+L change model  /commands for help")
-	} else {
-		hint = th.Muted("Enter send  Alt+Enter newline  ↑↓/PgUp/PgDn scroll  Ctrl+L model")
-	}
-
-	// ── Main content ──
-	viewport := m.renderTranscript(width, m.viewportHeight())
-	input := m.renderInput(width)
-
-	// ── Assemble ──
-	parts := make([]string, 0, 7)
-	parts = append(parts, status)
-	if toast := m.renderToast(width); toast != "" {
-		parts = append(parts, "")
-		parts = append(parts, toast)
-	}
-	parts = append(parts, viewport)
-	parts = append(parts, hint)
-	parts = append(parts, input)
-	if footer := m.renderFooter(width); footer != "" {
-		parts = append(parts, footer)
-	}
-	if suggestions := m.renderAutocomplete(width); suggestions != "" {
-		parts = append(parts, suggestions)
-	}
-
-	return strings.Join(parts, "\n")
-}
-
-// renderModalView renders the full normal view dimmed, then overlays the modal box centered.
-func (m *chatModel) renderModalView(width int) string {
-	th := m.theme
-	if th == nil {
-		th = tui.DefaultTheme
-	}
-
-	// Build the normal view lines (status + transcript + hint + input + footer)
-	status := m.statusStyle.Width(width).Render(tui.SliceByColumn(m.status, 0, max(1, width-2), true))
-	viewport := m.renderTranscript(width, m.viewportHeight())
-	hint := th.Muted("")
-	if len(m.messages) == 0 {
-		hint = th.Muted("")
-	}
-	input := m.renderInput(width)
-
-	parts := make([]string, 0, 7)
-	parts = append(parts, status)
-	if toast := m.renderToast(width); toast != "" {
-		parts = append(parts, "")
-		parts = append(parts, toast)
-	}
-	parts = append(parts, viewport)
-	parts = append(parts, hint)
-	parts = append(parts, input)
-	if footer := m.renderFooter(width); footer != "" {
-		parts = append(parts, footer)
-	}
-
-	baseStr := strings.Join(parts, "\n")
-	baseLines := strings.Split(baseStr, "\n")
-
-	// Dim all lines
-	dimmed := make([]string, 0, len(baseLines))
-	for _, line := range baseLines {
-		if strings.TrimSpace(line) == "" {
-			dimmed = append(dimmed, "")
-		} else {
-			dimmed = append(dimmed, th.Muted(line))
-		}
-	}
-
-	// Render modal box
-	modalLines := m.renderModal(width)
-	if len(modalLines) == 0 {
-		return strings.Join(dimmed, "\n")
-	}
-
-	// Center the modal vertically
-	viewH := len(dimmed)
-	modalH := len(modalLines)
-	top := max(1, (viewH-modalH)/2)
-
-	// Overlay modal onto dimmed view, preserving and dimming background on left/right sides
-	result := make([]string, len(dimmed))
-	copy(result, dimmed)
-	for i := 0; i < modalH && top+i < len(result); i++ {
-		bgLine := baseLines[top+i]
-		modalLine := modalLines[i]
-		modalW := tui.VisibleWidth(modalLine)
-		padding := max(0, (width-modalW)/2)
-
-		leftBg := tui.SliceByColumn(bgLine, 0, padding, true)
-		if lw := tui.VisibleWidth(leftBg); lw < padding {
-			leftBg += strings.Repeat(" ", padding-lw)
-		}
-
-		rightBg := tui.SliceByColumn(bgLine, padding+modalW, 1000, true)
-		rightW := max(0, width-padding-modalW)
-		if rw := tui.VisibleWidth(rightBg); rw < rightW {
-			rightBg += strings.Repeat(" ", rightW-rw)
-		}
-
-		result[top+i] = th.Muted(leftBg) + modalLine + th.Muted(rightBg)
-	}
-
-	return strings.Join(result, "\n")
-}
-
-func (m *chatModel) AddMessage(msg agent.AgentMessage) {
-	m.messages = append(m.messages, msg)
-	m.scroll = 0
-	m.recalculateStats()
-}
-
-func (m *chatModel) UpdateMessage(index int, msg agent.AgentMessage) {
-	if index < 0 || index >= len(m.messages) {
-		return
-	}
-	m.messages[index] = msg
-	m.scroll = 0
-	m.recalculateStats()
-}
-
-func (m *chatModel) ClearMessages() {
-	m.messages = nil
-	m.scroll = 0
-	m.recalculateStats()
-}
-
-func (m *chatModel) SetModel(model, provider string) {
-	m.modelName = model
-	m.providerName = provider
-}
-
-func (m *chatModel) SetTokenCount(count, window int) {
-	m.tokenCount = count
-	m.contextWindow = window
-}
-
-func (m *chatModel) SetTotalCost(cost float64) {
-	m.totalCost = cost
-}
-
-func (m *chatModel) SetGitBranch(branch string) {
-	m.gitBranch = branch
-}
-
-// buildCostMap builds a lookup map from provider/model key to ModelDefinition for fast cost calculation.
-func buildCostMap() map[string]ai.ModelDefinition {
-	m := make(map[string]ai.ModelDefinition)
-	for _, def := range ai.DefaultModels() {
-		key := string(def.Provider) + "/" + def.Name
-		m[key] = def
-	}
-	return m
-}
-
-func (m *chatModel) getCostMap() map[string]ai.ModelDefinition {
-	if m.costMap == nil || m.costMapDirty {
-		m.costMap = buildCostMap()
-		m.costMapDirty = false
-	}
-	return m.costMap
-}
-
-func (m *chatModel) invalidateCostMap() {
-	m.costMapDirty = true
-}
-
-func (m *chatModel) recalculateStats() {
-	var lastTokens int
-	var totalCost float64
-
-	costMap := m.getCostMap()
-
-	for _, msg := range m.messages {
-		if msg.Usage != nil {
-			lastTokens = msg.Usage.TotalTokens
-			if msg.Usage.Cost.Total > 0 {
-				totalCost += msg.Usage.Cost.Total
-			} else if msg.Usage.Input > 0 || msg.Usage.Output > 0 {
-				key := string(msg.Provider) + "/" + msg.Model
-				if def, ok := costMap[key]; ok {
-					c := ai.CalculateCost(def, *msg.Usage)
-					totalCost += c.Total
-				}
-			}
-		}
-	}
-
-	m.tokenCount = lastTokens
-	m.totalCost = totalCost
-}
-
-func (m *chatModel) renderFooter(width int) string {
-	th := m.theme
-	if th == nil {
-		th = tui.DefaultTheme
-	}
-	if width <= 0 {
-		return ""
-	}
-
-	var parts []string
-
-	// Git branch
-	if m.gitBranch != "" {
-		parts = append(parts, th.Colored("⎇  "+m.gitBranch, th.Palette.Success))
-	}
-
-	// Model/provider
-	if m.modelName != "" {
-		modelStr := m.modelName
-		if m.providerName != "" {
-			modelStr = m.providerName + "/" + m.modelName
-		}
-		parts = append(parts, th.Colored(modelStr, th.Palette.Accent))
-	}
-
-	// Token usage & context window
-	if m.contextWindow > 0 {
-		tokenStr := fmt.Sprintf("%d tok", m.tokenCount)
-		pct := float64(m.tokenCount) / float64(m.contextWindow) * 100
-		var pctStr string
-		if pct < 1.0 && m.tokenCount > 0 {
-			pctStr = "<1%"
-		} else {
-			pctStr = fmt.Sprintf("%d%%", int(pct))
-		}
-		tokenStr = fmt.Sprintf("%s / %d ctx (%s)", tokenStr, m.contextWindow, pctStr)
-		parts = append(parts, th.Muted(tokenStr))
-	} else if m.tokenCount > 0 {
-		parts = append(parts, th.Muted(fmt.Sprintf("%d tok", m.tokenCount)))
-	}
-
-	// Cost — use %g to avoid trailing zeros (0.0045 not 0.00450000)
-	if m.totalCost > 0 {
-		parts = append(parts, th.Colored(fmt.Sprintf("$%g", m.totalCost), th.Palette.Warning))
-	}
-
-	if len(parts) == 0 {
-		return ""
-	}
-
-	// Build the line
-	sep := th.Muted(" · ")
-	line := strings.Join(parts, sep)
-
-	// Pad to full width
-	if tui.VisibleWidth(line) > width {
-		line = tui.SliceByColumn(line, 0, width, true)
-	} else {
-		line += strings.Repeat(" ", max(0, width-tui.VisibleWidth(line)))
-	}
-
-	return line
-}
-
-func (m *chatModel) Message(index int) (agent.AgentMessage, bool) {
-	if index < 0 || index >= len(m.messages) {
-		return agent.AgentMessage{}, false
-	}
-	return m.messages[index], true
-}
-
-func (m *chatModel) LastMessageIndex() int {
-	return len(m.messages) - 1
-}
-
-func (m *chatModel) Snapshot() []agent.AgentMessage {
-	return append([]agent.AgentMessage(nil), m.messages...)
-}
-
-func (m *chatModel) SetStatus(status string) {
-	m.status = status
-}
-
-func (m *chatModel) ClearInput() {
-	m.input = nil
-	m.cursor = 0
-	m.closeAutocomplete()
-}
-
-// ─── Modal methods ────────────────────────────────────────────────────────────
-
-func (m *chatModel) OpenModalPrompt(title, placeholder string, onSubmit func(string), onCancel func()) {
-	m.closeModal()
-	m.modal = &modalState{
-		active:      true,
-		mode:        "prompt",
-		title:       title,
-		placeholder: placeholder,
-		onSubmit:    onSubmit,
-		onCancel:    onCancel,
-	}
-}
-
-func (m *chatModel) OpenModalSelector(title string, items []autocompleteItem, onSelect func(autocompleteItem), onCancel func()) {
-	m.closeModal()
-	m.modal = &modalState{
-		active:         true,
-		mode:           "selector",
-		title:          title,
-		allItems:       append([]autocompleteItem(nil), items...),
-		items:          append([]autocompleteItem(nil), items...),
-		onSelect:       onSelect,
-		onSelectCancel: onCancel,
-	}
-}
-
-func (m *chatModel) OpenModalConfirm(title, message string, onYes func(), onNo func()) {
-	m.closeModal()
-	m.modal = &modalState{
-		active:     true,
-		mode:       "confirm",
-		title:      title,
-		message:    message,
-		onYes:      onYes,
-		onNo:       onNo,
-		confirmIdx: 0,
-	}
-}
-
-func (m *chatModel) OpenModalInfo(title string, content []string, onDismiss func()) {
-	m.closeModal()
-	m.modal = &modalState{
-		active:    true,
-		mode:      "info",
-		title:     title,
-		content:   append([]string(nil), content...),
-		onDismiss: onDismiss,
-	}
-}
-
-func (m *chatModel) closeModal() {
-	if m.modal != nil {
-		m.modal = nil
-	}
-}
-
-// showToast displays a brief centred notification that auto-dismisses.
-func (m *chatModel) showToast(text string) {
-	if text == "" {
-		return
-	}
-	m.toast = text
-	m.toastUntil = time.Now().Add(4 * time.Second)
-}
-
-// renderToast returns a centred toast banner line, or empty string if no toast is active.
-func (m *chatModel) renderToast(width int) string {
-	// Check expiry
-	if m.toast == "" || time.Now().After(m.toastUntil) || width <= 0 {
-		m.toast = ""
-		return ""
-	}
-	th := m.theme
-	if th == nil {
-		th = tui.DefaultTheme
-	}
-	// Style the toast with a subtle background box
-	display := m.toast
-	if tui.VisibleWidth(display) > width-6 {
-		display = tui.SliceByColumn(display, 0, width-6, true)
-	}
-	// Centred with styled background
-	box := " " + display + " "
-	boxW := tui.VisibleWidth(box)
-	padding := max(0, (width-boxW)/2)
-	// Use a subtle background colour to make it pop
-	styled := th.Bg(box, th.Palette.Surface)
-	return strings.Repeat(" ", padding) + styled
-}
-
-// handleModalInput processes keyboard input when a modal is active.
-func (m *chatModel) handleModalInput(msg tea.KeyMsg) {
-	modal := m.modal
-	if modal == nil {
-		return
-	}
-
-	switch modal.mode {
-	case "prompt":
-		switch msg.String() {
-		case "esc":
-			onCancel := modal.onCancel
-			m.closeModal()
-			if onCancel != nil {
-				onCancel()
-			}
-		case "enter":
-			value := string(modal.value)
-			onSubmit := modal.onSubmit
-			m.closeModal()
-			if onSubmit != nil {
-				onSubmit(value)
-			}
-		case "backspace", "ctrl+h":
-			if len(modal.value) > 0 {
-				modal.value = modal.value[:len(modal.value)-1]
-			}
-		case "ctrl+u":
-			modal.value = nil
-		default:
-			if msg.Type == tea.KeyRunes {
-				modal.value = append(modal.value, msg.Runes...)
-			} else if msg.Type == tea.KeySpace {
-				modal.value = append(modal.value, ' ')
-			}
-		}
-
-	case "selector":
-		switch msg.String() {
-		case "esc":
-			onCancel := modal.onSelectCancel
-			m.closeModal()
-			if onCancel != nil {
-				onCancel()
-			}
-		case "up", "ctrl+p":
-			if modal.selIdx > 0 {
-				modal.selIdx--
-			}
-		case "down", "ctrl+n":
-			if modal.selIdx < len(modal.items)-1 {
-				modal.selIdx++
-			}
-		case "pgup":
-			modal.selIdx -= 8
-			if modal.selIdx < 0 {
-				modal.selIdx = 0
-			}
-		case "pgdown":
-			modal.selIdx += 8
-			modal.selIdx = max(0, min(modal.selIdx, len(modal.items)-1))
-		case "home":
-			modal.selIdx = 0
-		case "end":
-			modal.selIdx = max(0, len(modal.items)-1)
-		case "enter":
-			if len(modal.items) > 0 && modal.selIdx >= 0 && modal.selIdx < len(modal.items) {
-				item := modal.items[modal.selIdx]
-				onSelect := modal.onSelect
-				m.closeModal()
-				if onSelect != nil {
-					onSelect(item)
-				}
-			}
-		case "backspace", "ctrl+h":
-			if len(modal.query) > 0 {
-				modal.query = modal.query[:len(modal.query)-1]
-				m.updateModalFilter()
-			}
-		case "ctrl+u":
-			modal.query = nil
-			m.updateModalFilter()
-		default:
-			if msg.Type == tea.KeyRunes {
-				modal.query = append(modal.query, msg.Runes...)
-				m.updateModalFilter()
-			} else if msg.Type == tea.KeySpace {
-				modal.query = append(modal.query, ' ')
-				m.updateModalFilter()
-			}
-		}
-
-	case "confirm":
-		switch msg.String() {
-		case "esc":
-			onNo := modal.onNo
-			m.closeModal()
-			if onNo != nil {
-				onNo()
-			}
-		case "enter":
-			if modal.confirmIdx == 0 {
-				onYes := modal.onYes
-				m.closeModal()
-				if onYes != nil {
-					onYes()
-				}
-			} else {
-				onNo := modal.onNo
-				m.closeModal()
-				if onNo != nil {
-					onNo()
-				}
-			}
-		case "left", "ctrl+p":
-			modal.confirmIdx = 0
-		case "right", "ctrl+n":
-			modal.confirmIdx = 1
-		}
-
-	case "info":
-		maxLines := max(3, min(len(modal.content), 16))
-		maxScroll := max(0, len(modal.content)-maxLines)
-
-		switch msg.String() {
-		case "up", "ctrl+p":
-			if modal.infoScroll > 0 {
-				modal.infoScroll--
-			}
-		case "down", "ctrl+n":
-			if modal.infoScroll < maxScroll {
-				modal.infoScroll++
-			}
-		case "pgup":
-			modal.infoScroll -= 10
-			if modal.infoScroll < 0 {
-				modal.infoScroll = 0
-			}
-		case "pgdown":
-			modal.infoScroll += 10
-			if modal.infoScroll > maxScroll {
-				modal.infoScroll = maxScroll
-			}
-		case "home":
-			modal.infoScroll = 0
-		case "end":
-			modal.infoScroll = maxScroll
-		default:
-			// Any key dismisses the info modal
-			onDismiss := modal.onDismiss
-			m.closeModal()
-			if onDismiss != nil {
-				onDismiss()
-			}
-		}
-	}
-}
-
-func (m *chatModel) updateModalFilter() {
-	modal := m.modal
-	if modal == nil || modal.mode != "selector" {
-		return
-	}
-	query := strings.ToLower(strings.TrimSpace(string(modal.query)))
-	modal.items = modal.items[:0]
-	for _, item := range modal.allItems {
-		haystack := strings.ToLower(item.Value + " " + item.Label + " " + item.Description)
-		if query == "" || strings.Contains(haystack, query) {
-			modal.items = append(modal.items, item)
-		}
-	}
-	modal.selIdx = max(0, min(modal.selIdx, len(modal.items)-1))
-}
-
-func (m *chatModel) insertRunes(runes ...rune) {
-	next := make([]rune, 0, len(m.input)+len(runes))
-	next = append(next, m.input[:m.cursor]...)
-	next = append(next, runes...)
-	next = append(next, m.input[m.cursor:]...)
-	m.input = next
-	m.cursor += len(runes)
-	m.updateAutocomplete()
-}
-
-func (m *chatModel) viewportHeight() int {
-	if m.height <= 0 {
-		return 20
-	}
-	inputLines := len(strings.Split(m.inputTextWithCursor(false), "\n")) + 2
-	footerLines := 0
-	if m.modelName != "" || m.gitBranch != "" || m.tokenCount > 0 || m.totalCost > 0 {
-		footerLines = 1
-	}
-	return max(3, m.height-2-inputLines-m.autocompleteHeight()-footerLines)
-}
-
-// renderModal returns the centered modal box lines.
-// Returns nil if no modal is active.
-func (m *chatModel) renderModal(width int) []string {
-	if m.modal == nil || width <= 0 {
-		return nil
-	}
-	th := m.theme
-	if th == nil {
-		th = tui.DefaultTheme
-	}
-
-	modal := m.modal
-
-	// Calculate modal dimensions
-	boxWidth := min(width-8, 72)
-	if boxWidth < 30 {
-		boxWidth = width - 2
-	}
-	innerW := boxWidth - 4 // padding inside box
-
-	var contentLines []string
-
-	switch modal.mode {
-	case "prompt":
-		// Input field
-		value := string(modal.value)
-		displayValue := value
-		if displayValue == "" && modal.placeholder != "" {
-			displayValue = th.Muted(modal.placeholder)
-		} else if len(value) > 0 {
-			// Mask the API key / sensitive input — show last 4 chars
-			if len(value) > 4 {
-				displayValue = strings.Repeat("█", len(value)-4) + value[len(value)-4:]
-			} else {
-				displayValue = strings.Repeat("█", len(value))
-			}
-		}
-		promptLine := " " + th.Accent("▌") + " " + displayValue
-		if tui.VisibleWidth(promptLine) > innerW {
-			promptLine = tui.SliceByColumn(promptLine, tui.VisibleWidth(promptLine)-innerW, tui.VisibleWidth(promptLine), true)
-		} else {
-			promptLine += strings.Repeat(" ", innerW-tui.VisibleWidth(promptLine))
-		}
-		contentLines = append(contentLines, "  "+th.Muted("┌"+strings.Repeat("─", innerW)+"┐"))
-		contentLines = append(contentLines, "  "+th.Muted("│")+promptLine+th.Muted("│"))
-		contentLines = append(contentLines, "  "+th.Muted("└"+strings.Repeat("─", innerW)+"┘"))
-		contentLines = append(contentLines, "")
-		contentLines = append(contentLines, "  "+th.Muted("Enter submit  ·  Esc cancel"))
-
-	case "selector":
-		// Filter line
-		query := string(modal.query)
-		if query == "" {
-			contentLines = append(contentLines, "  "+th.Muted("search: ")+th.Dim("type to filter"))
-		} else {
-			contentLines = append(contentLines, "  "+th.Muted("search: ")+th.Accent(query))
-		}
-
-		if len(modal.items) == 0 {
-			contentLines = append(contentLines, "  "+th.Muted("No matches"))
-		}
-
-		// Items — limit to visible height
-		maxVisible := 10
-		start := max(0, min(modal.selIdx-maxVisible/2, len(modal.items)-maxVisible))
-		end := min(start+maxVisible, len(modal.items))
-		for i := start; i < end; i++ {
-			item := modal.items[i]
-			var line string
-			if i == modal.selIdx {
-				line = "  " + th.Accent("▸") + " " + th.BoldAccent(item.Label)
-			} else {
-				line = "    " + item.Label
-			}
-			if item.Description != "" && innerW > 40 {
-				descMax := innerW - tui.VisibleWidth(line) - 2
-				if descMax > 8 {
-					desc := tui.SliceByColumn(strings.ReplaceAll(item.Description, "\n", " "), 0, descMax, true)
-					padding := max(1, innerW-tui.VisibleWidth(line)-tui.VisibleWidth(desc)-1)
-					line += strings.Repeat(" ", padding) + th.Muted(desc)
-				}
-			}
-			if tui.VisibleWidth(line) > innerW+2 {
-				line = tui.SliceByColumn(line, 0, innerW+2, true)
-			} else {
-				line += strings.Repeat(" ", innerW+2-tui.VisibleWidth(line))
-			}
-			contentLines = append(contentLines, line)
-		}
-		if end < len(modal.items) {
-			contentLines = append(contentLines, "  "+th.Muted(fmt.Sprintf("⋯ %d more", len(modal.items)-end)))
-		}
-		contentLines = append(contentLines, "")
-		contentLines = append(contentLines, "  "+th.Muted("Type to filter  ·  ↑↓ navigate  ·  Enter select  ·  Esc cancel"))
-
-	case "confirm":
-		// Message
-		for _, line := range strings.Split(modal.message, "\n") {
-			wrapped := tui.SliceByColumn(line, 0, innerW, true)
-			contentLines = append(contentLines, "  "+wrapped)
-		}
-		contentLines = append(contentLines, "")
-		// Yes / No toggle
-		var choiceLine string
-		if modal.confirmIdx == 0 {
-			choiceLine = "  " + th.Accent("▸ Yes") + "    " + th.Muted("No")
-		} else {
-			choiceLine = "  " + th.Muted("Yes") + "    " + th.Accent("▸ No")
-		}
-		contentLines = append(contentLines, choiceLine)
-		contentLines = append(contentLines, "")
-		contentLines = append(contentLines, "  "+th.Muted("← → switch  ·  Enter confirm  ·  Esc cancel"))
-
-	case "info":
-		// Scrollable content
-		maxLines := max(3, min(len(modal.content), 16))
-		scroll := modal.infoScroll
-		start := max(0, min(scroll, len(modal.content)-maxLines))
-		end := min(start+maxLines, len(modal.content))
-		for i := start; i < end; i++ {
-			line := modal.content[i]
-			if tui.VisibleWidth(line) > innerW {
-				line = tui.SliceByColumn(line, 0, innerW, true)
-			} else {
-				line += strings.Repeat(" ", innerW-tui.VisibleWidth(line))
-			}
-			contentLines = append(contentLines, "  "+line)
-		}
-		contentLines = append(contentLines, "")
-		hint := "any key to close"
-		if len(modal.content) > maxLines {
-			hint = "↑↓ scroll  ·  any key to close"
-		}
-		contentLines = append(contentLines, "  "+th.Muted(hint))
-	}
-
-	// Build the modal box
-	boxHeight := len(contentLines) + 3 // top/bottom borders + title
-	topBorder := th.Accent("┌── ") + th.BoldAccent(modal.title) + " " + th.Muted(strings.Repeat("─", max(0, boxWidth-6-len(modal.title)-3))) + th.Accent("┐")
-	bottomBorder := th.Accent("└") + th.Muted(strings.Repeat("─", boxWidth-2)) + th.Accent("┘")
-
-	boxLines := make([]string, 0, boxHeight+2)
-	boxLines = append(boxLines, topBorder)
-	boxLines = append(boxLines, th.Muted("│")+strings.Repeat(" ", boxWidth-2)+th.Muted("│")) // spacer
-	for _, line := range contentLines {
-		// Pad line to fill box width
-		lw := tui.VisibleWidth(line)
-		if lw < boxWidth-2 {
-			line += strings.Repeat(" ", boxWidth-2-lw)
-		}
-		boxLines = append(boxLines, th.Muted("│")+line+th.Muted("│"))
-	}
-	boxLines = append(boxLines, bottomBorder)
-
-	return boxLines
-}
-
-func (m *chatModel) renderTranscript(width, height int) string {
-	lines := m.renderMessages(width)
-	if height <= 0 {
-		return ""
-	}
-	if len(lines) == 0 {
-		lines = m.renderEmptyState(width)
-	}
-
-	maxScroll := max(0, len(lines)-height)
-	if m.scroll > maxScroll {
-		m.scroll = maxScroll
-	}
-	start := max(0, len(lines)-height-m.scroll)
-	end := min(len(lines), start+height)
-	view := append([]string(nil), lines[start:end]...)
-	for len(view) < height {
-		view = append(view, "")
-	}
-	return strings.Join(view, "\n")
-}
-
-func (m *chatModel) renderEmptyState(width int) []string {
-	th := m.theme
-	if th == nil {
-		th = tui.DefaultTheme
-	}
-	pad := strings.Repeat(" ", 2)
-	lines := []string{
-		"",
-		pad + th.BoldAccentAlt("rho") + th.Muted(" — your local coding agent"),
-		"",
-		pad + th.Muted("Start a task, ask a question, or run a slash command."),
-		"",
-		pad + th.Muted("Ctrl+L  select model   Ctrl+P  settings   /commands  help"),
-		"",
-	}
-	return lines
-}
-
-func (m *chatModel) renderMessages(width int) []string {
-	th := m.theme
-	if th == nil {
-		th = tui.DefaultTheme
-	}
-	var lines []string
-	contentWidth := max(20, width-4)
-	for _, msg := range m.messages {
-		if msg.Hide {
-			continue
-		}
-		switch msg.Role {
-		case ai.RoleUser:
-			lines = append(lines, "")
-			lines = append(lines, th.Success("You"))
-			if msg.Content != "" {
-				lines = append(lines, indentLines(tui.NewMarkdown(msg.Content, m.mdTheme).Render(contentWidth), "  ")...)
-			}
-		case ai.RoleAssistant:
-			name := msg.Model
-			if name == "" {
-				name = "Assistant"
-			}
-			lines = append(lines, "")
-			// Short model tag on the same line as the name
-			if msg.Provider != "" {
-				lines = append(lines, th.BoldAccent(name)+"  "+th.Tag(string(msg.Provider)))
-			} else {
-				lines = append(lines, th.BoldAccent(name))
-			}
-			if msg.Content != "" {
-				lines = append(lines, indentLines(tui.NewMarkdown(msg.Content, m.mdTheme).Render(contentWidth), "  ")...)
-			} else if len(msg.ToolCalls) == 0 && msg.ErrorMessage == "" {
-				lines = append(lines, "  "+th.Muted("Thinking...")+th.Dim(" ⋯"))
-			}
-			if msg.ErrorMessage != "" {
-				lines = append(lines, "  "+th.Error("✖ Error: "+msg.ErrorMessage))
-			}
-		case ai.RoleToolResult:
-			title, preview := m.renderToolResultSummary(msg, contentWidth)
-			if title != "" {
-				lines = append(lines, "", title)
-			}
-			if preview != nil {
-				lines = append(lines, preview...)
-			}
-		}
-	}
-	return lines
-}
-
-func (m *chatModel) renderToolResultSummary(msg agent.AgentMessage, width int) (string, []string) {
-	th := m.theme
-	if th == nil {
-		th = tui.DefaultTheme
-	}
-	name := msg.ToolName
-	if name == "" {
-		name = "tool"
-	}
-
-	content := strings.TrimSpace(msg.Content)
-	status := "done"
-	if content == "" || content == "Running..." {
-		status = "running"
-	} else if strings.HasPrefix(content, "Preparing ") {
-		status = "preparing"
-	} else if strings.HasPrefix(content, "Queued ") {
-		status = "queued"
-	}
-	if msg.IsError {
-		status = "failed"
-	}
-
-	lineCount := 0
-	if (status == "done" || msg.IsError) && content != "" {
-		lineCount = len(strings.Split(content, "\n"))
-	}
-
-	// Compact status badge
-	statusIcon := "●"
-	switch status {
-	case "running":
-		statusIcon = th.Accent("●")
-	case "failed":
-		statusIcon = th.Error("●")
-	case "preparing", "queued":
-		statusIcon = th.Muted("○")
-	default:
-		statusIcon = th.Success("●")
-	}
-
-	title := fmt.Sprintf("%s %s", statusIcon, th.Muted(name))
-	if lineCount > toolPreviewLines {
-		title += th.Muted(fmt.Sprintf("  %d lines", lineCount))
-	}
-
-	if status != "done" && !msg.IsError {
-		return title, nil
-	}
-	if content == "" {
-		return title, nil
-	}
-
-	contentLines := strings.Split(content, "\n")
-	if len(contentLines) > toolPreviewLines {
-		contentLines = append(contentLines[:toolPreviewLines], fmt.Sprintf("... %d more lines", len(contentLines)-toolPreviewLines))
-	}
-	preview := make([]string, 0, len(contentLines))
-	for _, line := range contentLines {
-		rendered := tui.SliceByColumn(line, 0, width, true)
-		if msg.IsError {
-			preview = append(preview, "  "+th.Error(rendered))
-		} else {
-			preview = append(preview, "  "+th.Muted(rendered))
-		}
-	}
-	return title, preview
-}
-
-func (m *chatModel) renderInput(width int) string {
-	th := m.theme
-	if th == nil {
-		th = tui.DefaultTheme
-	}
-	if width <= 0 {
-		return ""
-	}
-	text := m.inputTextWithCursor(true)
-	if len(m.input) == 0 {
-		// Show placeholder with a subtle prompt icon
-		text = th.Muted("> Type a message…")
-		return text + strings.Repeat(" ", max(0, width-tui.VisibleWidth(text)))
-	}
-	prompt := th.Accent("▌") + " "
-	text = prompt + text
-	if tui.VisibleWidth(text) > width {
-		text = tui.SliceByColumn(text, tui.VisibleWidth(text)-width, tui.VisibleWidth(text), true)
-	} else {
-		text += strings.Repeat(" ", width-tui.VisibleWidth(text))
-	}
-	// Subtle bottom border
-	return text + "\n" + th.Muted(strings.Repeat("─", width))
-}
-
-func (m *chatModel) renderAutocomplete(width int) string {
-	th := m.theme
-	if th == nil {
-		th = tui.DefaultTheme
-	}
-	if len(m.autocomplete) == 0 || width <= 0 {
-		return ""
-	}
-
-	maxVisible := min(len(m.autocomplete), 6)
-	start := max(0, min(m.autocompleteIdx-maxVisible/2, len(m.autocomplete)-maxVisible))
-	end := min(start+maxVisible, len(m.autocomplete))
-	lines := make([]string, 0, end-start+1)
-	// Header
-	lines = append(lines, th.Muted(strings.Repeat("─", width)))
-	for i := start; i < end; i++ {
-		item := m.autocomplete[i]
-		var line string
-		if i == m.autocompleteIdx {
-			// Selected item with accent bar
-			line = th.Accent("▌") + " " + th.BoldAccent(item.Label)
-		} else {
-			line = " " + " " + item.Label
-		}
-		if item.Description != "" && width > 44 {
-			descMax := width - tui.VisibleWidth(line) - 3
-			if descMax > 8 {
-				desc := tui.SliceByColumn(strings.ReplaceAll(item.Description, "\n", " "), 0, descMax, true)
-				line += strings.Repeat(" ", max(1, width-tui.VisibleWidth(line)-tui.VisibleWidth(desc)-1)) + th.Muted(desc)
-			}
-		}
-		lines = append(lines, tui.SliceByColumn(line, 0, width, true))
-	}
-	if end < len(m.autocomplete) {
-		lines = append(lines, th.Muted(fmt.Sprintf("  ⋯ %d more", len(m.autocomplete)-end)))
-	}
-	return strings.Join(lines, "\n")
-}
-
-func (m *chatModel) autocompleteHeight() int {
-	if len(m.autocomplete) == 0 {
-		return 0
-	}
-	return min(len(m.autocomplete), 6)
-}
-
-func (m *chatModel) inputTextWithCursor(showCursor bool) string {
-	value := append([]rune(nil), m.input...)
-	if showCursor {
-		cursor := m.cursor
-		if cursor < 0 {
-			cursor = 0
-		}
-		if cursor > len(value) {
-			cursor = len(value)
-		}
-		value = append(value[:cursor], append([]rune{'▏'}, value[cursor:]...)...)
-	}
-	return string(value)
-}
-
-func (m *chatModel) clampScroll() {
-	maxScroll := max(0, len(m.renderMessages(max(20, m.width)))-m.viewportHeight())
-	if m.scroll > maxScroll {
-		m.scroll = maxScroll
-	}
-	if m.scroll < 0 {
-		m.scroll = 0
-	}
-}
-
-func (m *chatModel) updateAutocomplete() {
-	if m.onAutocomplete == nil {
-		m.closeAutocomplete()
-		return
-	}
-	items := m.onAutocomplete(string(m.input), m.cursor)
-	m.autocomplete = items
-	if len(items) == 0 {
-		m.autocompleteIdx = 0
-		return
-	}
-	if m.autocompleteIdx >= len(items) {
-		m.autocompleteIdx = len(items) - 1
-	}
-}
-
-func (m *chatModel) closeAutocomplete() {
-	m.autocomplete = nil
-	m.autocompleteIdx = 0
-}
-
-func (m *chatModel) applyAutocomplete() {
-	if len(m.autocomplete) == 0 || m.autocompleteIdx >= len(m.autocomplete) {
-		return
-	}
-	item := m.autocomplete[m.autocompleteIdx]
-	text := string(m.input)
-	replacement := item.Value
-	if strings.HasPrefix(text, "/") && !strings.Contains(strings.TrimSpace(text), " ") {
-		replacement += " "
-	}
-	m.input = []rune(replacement)
-	m.cursor = len(m.input)
-	m.closeAutocomplete()
-}
-
-func indentLines(lines []string, prefix string) []string {
-	out := make([]string, 0, len(lines))
-	for _, line := range lines {
-		if line == "" {
-			out = append(out, "")
-			continue
-		}
-		out = append(out, prefix+line)
-	}
-	return out
-}
-
 // InteractiveMode is the full TUI agent interface.
 type InteractiveMode struct {
 	program              *tea.Program
 	programRunning       bool
-	ui                   *chatModel
+	ui                   *ui.ChatModel
 	agent                *agent.AgentLoop
 	config               *RuntimeConfig
 	extRuntime           *extensions.Runtime
@@ -1623,6 +198,15 @@ func NewInteractiveMode(cfg *RuntimeConfig) *InteractiveMode {
 		coordinator:         coordinator,
 	}
 
+	// Wire UserBash hook to extension runtime via thread-safe registration
+	_unregisterBashHook := tools.RegisterUserBashHook(func(command string) error {
+		return extRuntime.FireUserBash(extCtx, extensions.UserBashEvent{
+			Command:           command,
+			ExcludeFromContext: false,
+		})
+	})
+	_ = _unregisterBashHook // keep for future cleanup
+
 	// Set up UI on the BTModel
 	im.setupUI()
 	im.extCtx.UI = im.extensionUIContext()
@@ -1651,7 +235,7 @@ func (im *InteractiveMode) Run() error {
 
 func (im *InteractiveMode) setupUI() {
 	status := im.statusText("")
-	im.ui = newChatModel(status)
+	im.ui = ui.NewChatModel(status)
 	im.applyActiveTheme()
 
 	// Initialize metadata footer details
@@ -1660,16 +244,16 @@ func (im *InteractiveMode) setupUI() {
 	def := providers.GuessModelDefinition(im.config.Provider, im.config.Model.Name)
 	im.ui.SetTokenCount(0, def.ContextWindow)
 
-	im.ui.onMessage = func(msg tea.Msg) {
+	im.ui.OnMessage = func(msg tea.Msg) {
 		im.handleCustomMessage(msg)
 	}
-	im.ui.onSubmit = func(value string) {
+	im.ui.OnSubmit = func(value string) {
 		im.handleSubmit(value)
 	}
-	im.ui.onAutocomplete = func(text string, cursor int) []autocompleteItem {
+	im.ui.OnAutocomplete = func(text string, cursor int) []ui.AutocompleteItem {
 		return im.autocomplete(text, cursor)
 	}
-	im.ui.onAction = func(action string) bool {
+	im.ui.OnAction = func(action string) bool {
 		return im.handleAppAction(action)
 	}
 	im.program = tea.NewProgram(im.ui, tea.WithAltScreen(), tea.WithMouseCellMotion())
@@ -1885,8 +469,26 @@ func (im *InteractiveMode) handleSubmit(value string) {
 		defer func() {
 			im.agentCancel = nil
 		}()
+
+		// Fire turn start
+		im.extRuntime.FireTurnStart(im.extCtx, extensions.TurnStartEvent{
+			TurnIndex: len(turnMessages),
+		})
+
 		// Fire agent start
 		im.extRuntime.FireAgentStart(im.extCtx)
+
+		// Fire context event before running agent
+		contextMsgs, ctxErr := im.extRuntime.FireContext(im.extCtx, extensions.ContextEvent{
+			Messages: turnMessages,
+		})
+		if ctxErr == nil && len(contextMsgs) > 0 {
+			// Prepend context messages
+			newTurnMessages := make([]agent.AgentMessage, 0, len(contextMsgs)+len(turnMessages))
+			newTurnMessages = append(newTurnMessages, contextMsgs...)
+			newTurnMessages = append(newTurnMessages, turnMessages...)
+			turnMessages = newTurnMessages
+		}
 
 		agentMsg, newMessages, err := im.runAgent(ctx, value, turnMessages)
 		if err != nil {
@@ -1921,6 +523,16 @@ func (im *InteractiveMode) handleSubmit(value string) {
 				Model:   im.config.Model.Name,
 			})
 		}
+
+		// Fire turn end
+		var respMsg agent.AgentMessage
+		if agentMsg != nil {
+			respMsg = *agentMsg
+		}
+		im.extRuntime.FireTurnEnd(im.extCtx, extensions.TurnEndEvent{
+			TurnIndex: len(turnMessages),
+			Message:   respMsg,
+		})
 
 		// Fire agent end
 		im.extRuntime.FireAgentEnd(im.extCtx, extensions.AgentEndEvent{
@@ -2006,6 +618,18 @@ func (im *InteractiveMode) handleSlashCommand(value string) bool {
 	case "fork":
 		im.forkSession()
 		return true
+	case "clone":
+		im.cloneSession()
+		return true
+	case "share":
+		im.shareSession(args)
+		return true
+	case "import":
+		im.importSession(args)
+		return true
+	case "export":
+		im.exportSession(args)
+		return true
 	case "new":
 		im.startNewSession()
 		return true
@@ -2088,7 +712,7 @@ func (im *InteractiveMode) showAvailableTools() {
 	allTools := extensions.MergeTools(tools.AllTools(im.config.CWD), im.extRuntime.GetCustomTools())
 	var lines []string
 	for _, tool := range allTools {
-		lines = append(lines, fmt.Sprintf("  %s  %s", im.ui.theme.Accent(tool.Name), im.ui.theme.Muted(tool.Description)))
+		lines = append(lines, fmt.Sprintf("  %s  %s", im.ui.Theme.Accent(tool.Name), im.ui.Theme.Muted(tool.Description)))
 	}
 	if len(lines) == 0 {
 		lines = []string{"  No tools available."}
@@ -2115,8 +739,8 @@ func (im *InteractiveMode) copyLastAssistantMessage() {
 }
 
 func (im *InteractiveMode) lastAssistantMessage() (agent.AgentMessage, bool) {
-	for i := len(im.ui.messages) - 1; i >= 0; i-- {
-		msg := im.ui.messages[i]
+	for i := len(im.ui.Messages) - 1; i >= 0; i-- {
+		msg := im.ui.Messages[i]
 		if msg.Hide || msg.Model == "rho" {
 			continue
 		}
@@ -2209,7 +833,7 @@ func (im *InteractiveMode) showSessionSelector(title string) {
 		im.addSystemMessage("No saved sessions.")
 		return
 	}
-	items := make([]autocompleteItem, 0, len(sessions))
+	items := make([]ui.AutocompleteItem, 0, len(sessions))
 	for _, session := range sessions {
 		label := session.ID
 		if session.ID == im.sessionID {
@@ -2222,13 +846,13 @@ func (im *InteractiveMode) showSessionSelector(title string) {
 		if session.CWD != "" {
 			desc = shortenPath(session.CWD) + " - " + desc
 		}
-		items = append(items, autocompleteItem{
+		items = append(items, ui.AutocompleteItem{
 			Value:       session.ID,
 			Label:       label,
 			Description: desc,
 		})
 	}
-	im.ui.OpenModalSelector(title, items, func(item autocompleteItem) {
+	im.ui.OpenModalSelector(title, items, func(item ui.AutocompleteItem) {
 		im.resumeSession(item.Value)
 	}, func() {
 		im.addSystemMessage("Session selection cancelled.")
@@ -2286,6 +910,188 @@ func (im *InteractiveMode) forkSession() {
 	im.addSystemMessage(fmt.Sprintf("Forked session %s from %s.", newID, parentID))
 }
 
+func (im *InteractiveMode) cloneSession() {
+	if im.sessionManager == nil {
+		im.addSystemMessage("No session manager is configured.")
+		return
+	}
+	newID := agent.CurrentSessionID()
+	messages := conversationMessages(im.ui.Snapshot())
+	if len(messages) == 0 {
+		im.addSystemMessage("No messages to clone.")
+		return
+	}
+	header := agent.SessionHeader{
+		ID:        newID,
+		Timestamp: time.Now().Format(time.RFC3339),
+		CWD:       im.config.CWD,
+	}
+	if err := im.sessionManager.Save(newID, header, messages); err != nil {
+		im.addSystemMessage(fmt.Sprintf("Could not clone session: %v", err))
+		return
+	}
+	im.addSystemMessage(fmt.Sprintf("Cloned session %s (copied %d messages).", newID, len(messages)))
+}
+
+func (im *InteractiveMode) shareSession(args []string) {
+	im.addSystemMessage("📤 Session sharing...")
+	if im.sessionManager == nil {
+		im.addSystemMessage("No session manager is configured.")
+		return
+	}
+
+	// Save current session first
+	sessionMessages := conversationMessages(im.ui.Snapshot())
+	if len(sessionMessages) == 0 {
+		im.addSystemMessage("No messages in session to share.")
+		return
+	}
+	header := agent.SessionHeader{
+		ID:        im.sessionID,
+		Timestamp: time.Now().Format(time.RFC3339),
+		CWD:       im.config.CWD,
+	}
+	if err := im.sessionManager.Save(im.sessionID, header, sessionMessages); err != nil {
+		im.addSystemMessage(fmt.Sprintf("Could not save session for sharing: %v", err))
+		return
+	}
+
+	// Export to JSON and display share instructions
+	sessions, err := im.sessionManager.List()
+	if err != nil {
+		im.addSystemMessage(fmt.Sprintf("Could not list sessions: %v", err))
+		return
+	}
+
+	var shareInfo strings.Builder
+	shareInfo.WriteString("📤 Session Share\n\n")
+	shareInfo.WriteString(fmt.Sprintf("Session: %s\n", im.sessionID))
+	shareInfo.WriteString(fmt.Sprintf("Messages: %d\n", len(sessionMessages)))
+	shareInfo.WriteString(fmt.Sprintf("Directory: %s\n\n", im.config.CWD))
+	shareInfo.WriteString("To share this session:\n")
+	shareInfo.WriteString(fmt.Sprintf("  1. Find the session file at:\n     ~/.rho/sessions/%s.json\n", im.sessionID))
+	shareInfo.WriteString("  2. Share the file or its contents.\n")
+	shareInfo.WriteString("\nAll sessions:\n")
+	for _, s := range sessions {
+		name := s.ID
+		if s.Name != "" {
+			name = s.Name
+		}
+		shareInfo.WriteString(fmt.Sprintf("  - %s (%d msgs, %s)\n", name, s.MessageCount, s.Timestamp[:10]))
+	}
+
+	im.addSystemMessage(shareInfo.String())
+}
+
+func (im *InteractiveMode) importSession(args []string) {
+	if len(args) == 0 {
+		im.ui.OpenModalPrompt("Import session", "Path to session JSON file...",
+			func(path string) {
+				im.doImportSession(path)
+			},
+			func() {
+				im.addSystemMessage("Session import cancelled.")
+			},
+		)
+		return
+	}
+	im.doImportSession(args[0])
+}
+
+func (im *InteractiveMode) doImportSession(path string) {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		im.addSystemMessage(fmt.Sprintf("Could not read file: %v", err))
+		return
+	}
+
+	var entries []agent.SessionEntry
+	if err := json.Unmarshal(data, &entries); err != nil {
+		im.addSystemMessage(fmt.Sprintf("Could not parse session file: %v\nExpected JSONL or JSON array format.", err))
+		return
+	}
+
+	if len(entries) == 0 {
+		im.addSystemMessage("No entries found in session file.")
+		return
+	}
+
+	// Find header and messages
+	var header agent.SessionHeader
+	var messages []agent.AgentMessage
+	for _, e := range entries {
+		if e.Type == "session" {
+			header = agent.SessionHeader{
+				ID:            im.sessionID,
+				Timestamp:     e.Timestamp,
+				CWD:           e.CWD,
+				ParentSession: e.ParentSession,
+			}
+		} else if e.Type == "message" && e.Message != nil {
+			messages = append(messages, *e.Message)
+		}
+	}
+
+	if header.ID == "" {
+		header = agent.SessionHeader{
+			ID:        im.sessionID,
+			Timestamp: time.Now().Format(time.RFC3339),
+			CWD:       im.config.CWD,
+		}
+	}
+
+	// Save to our session store
+	if err := im.sessionManager.Save(im.sessionID, header, messages); err != nil {
+		im.addSystemMessage(fmt.Sprintf("Could not save imported session: %v", err))
+		return
+	}
+
+	im.ui.ClearMessages()
+	for _, msg := range messages {
+		im.ui.AddMessage(msg)
+	}
+	im.ui.SetStatus(im.statusText(""))
+	im.addSystemMessage(fmt.Sprintf("✅ Imported %d messages from %s into session %s.", len(messages), path, im.sessionID))
+}
+
+func (im *InteractiveMode) exportSession(args []string) {
+	if im.sessionManager == nil {
+		im.addSystemMessage("No session manager is configured.")
+		return
+	}
+
+	sessionMessages := conversationMessages(im.ui.Snapshot())
+	if len(sessionMessages) == 0 {
+		im.addSystemMessage("No messages to export.")
+		return
+	}
+
+	header := agent.SessionHeader{
+		ID:        im.sessionID,
+		Timestamp: time.Now().Format(time.RFC3339),
+		CWD:       im.config.CWD,
+	}
+	if err := im.sessionManager.Save(im.sessionID, header, sessionMessages); err != nil {
+		im.addSystemMessage(fmt.Sprintf("Could not save session: %v", err))
+		return
+	}
+
+	filename := fmt.Sprintf("rho-session-%s.html", im.sessionID[:min(20, len(im.sessionID))])
+	if len(args) > 0 {
+		filename = args[0]
+	}
+
+	opts := export.DefaultExportOptions()
+	opts.Title = fmt.Sprintf("rho Session %s", im.sessionID[:min(8, len(im.sessionID))])
+
+	if err := export.ExportToHTML(sessionMessages, filename, opts); err != nil {
+		im.addSystemMessage(fmt.Sprintf("Could not write HTML export file: %v", err))
+		return
+	}
+
+	im.addSystemMessage(fmt.Sprintf("✅ Session exported to %s (%d messages).", filename, len(sessionMessages)))
+}
+
 func (im *InteractiveMode) showSettingsSelector() {
 	apiKeyStatus := "not configured"
 	if strings.TrimSpace(im.config.APIKey) != "" {
@@ -2294,7 +1100,7 @@ func (im *InteractiveMode) showSettingsSelector() {
 	showImages := im.settingBool("showImages", true)
 	thinkingLevel := im.settingString("thinkingLevel", "off")
 	activeTheme := im.activeThemeName()
-	items := []autocompleteItem{
+	items := []ui.AutocompleteItem{
 		{Value: "model", Label: "Model", Description: fmt.Sprintf("%s/%s", im.config.Provider, im.config.Model.Name)},
 		{Value: "auth", Label: "Authentication", Description: fmt.Sprintf("%s API key %s", im.config.Provider, apiKeyStatus)},
 		{Value: "theme", Label: "Theme", Description: activeTheme},
@@ -2304,7 +1110,7 @@ func (im *InteractiveMode) showSettingsSelector() {
 		{Value: "cwd", Label: "Working directory", Description: im.config.CWD},
 		{Value: "commands", Label: "Slash commands", Description: "Show all registered commands"},
 	}
-	im.ui.OpenModalSelector("Settings", items, func(item autocompleteItem) {
+	im.ui.OpenModalSelector("Settings", items, func(item ui.AutocompleteItem) {
 		switch item.Value {
 		case "model":
 			im.showModelSelector("")
@@ -2345,9 +1151,9 @@ func (im *InteractiveMode) showThemeSelector() {
 		return
 	}
 	active := im.activeThemeName()
-	items := make([]autocompleteItem, 0, len(names))
+	items := make([]ui.AutocompleteItem, 0, len(names))
 	for _, name := range names {
-		item := autocompleteItem{
+		item := ui.AutocompleteItem{
 			Value:       name,
 			Label:       name,
 			Description: "theme",
@@ -2373,7 +1179,7 @@ func (im *InteractiveMode) showThemeSelector() {
 		}
 		items = append(items, item)
 	}
-	im.ui.OpenModalSelector("Select theme", items, func(item autocompleteItem) {
+	im.ui.OpenModalSelector("Select theme", items, func(item ui.AutocompleteItem) {
 		im.selectTheme(item.Value)
 	}, func() {
 		im.addSystemMessage("Theme selection cancelled.")
@@ -2488,7 +1294,7 @@ func (im *InteractiveMode) getInstalledExtensions() []installedExtension {
 func (im *InteractiveMode) showExtensionsSelector() {
 	installed := im.getInstalledExtensions()
 
-	items := make([]autocompleteItem, 0, len(installed))
+	items := make([]ui.AutocompleteItem, 0, len(installed))
 	for _, ext := range installed {
 		status := "ON"
 		if !ext.Enabled {
@@ -2496,14 +1302,14 @@ func (im *InteractiveMode) showExtensionsSelector() {
 		}
 
 		desc := fmt.Sprintf("[%s] v%s — %s", status, ext.Version, ext.Description)
-		items = append(items, autocompleteItem{
+		items = append(items, ui.AutocompleteItem{
 			Value:       ext.Name,
 			Label:       ext.Name,
 			Description: desc,
 		})
 	}
 
-	im.ui.OpenModalSelector("Manage Extensions", items, func(item autocompleteItem) {
+	im.ui.OpenModalSelector("Manage Extensions", items, func(item ui.AutocompleteItem) {
 		var selected *installedExtension
 		for i := range installed {
 			if installed[i].Name == item.Value {
@@ -2525,14 +1331,14 @@ func (im *InteractiveMode) showExtensionActions(ext installedExtension) {
 		toggleLabel = "Disable"
 	}
 
-	items := []autocompleteItem{
+	items := []ui.AutocompleteItem{
 		{Value: "toggle", Label: toggleLabel, Description: "Toggle enabled/disabled status"},
 		{Value: "reload", Label: "Reload", Description: "Hot reload this extension"},
 		{Value: "uninstall", Label: "Uninstall", Description: "Remove extension files and uninstall"},
 		{Value: "back", Label: "Back", Description: "Return to extensions list"},
 	}
 
-	im.ui.OpenModalSelector(fmt.Sprintf("Extension: %s", ext.Name), items, func(item autocompleteItem) {
+	im.ui.OpenModalSelector(fmt.Sprintf("Extension: %s", ext.Name), items, func(item ui.AutocompleteItem) {
 		switch item.Value {
 		case "toggle":
 			disabledPath := filepath.Join(ext.Dir, ".disabled")
@@ -2682,11 +1488,11 @@ func (im *InteractiveMode) handleLoginCommand(args []string) {
 }
 
 func (im *InteractiveMode) showLoginAuthTypeSelector() {
-	items := []autocompleteItem{
+	items := []ui.AutocompleteItem{
 		{Value: "api-key", Label: "API key", Description: "Paste and store a provider API key"},
 		{Value: "oauth", Label: "OAuth", Description: "Choose an OAuth-capable provider"},
 	}
-	im.ui.OpenModalSelector("Login method", items, func(item autocompleteItem) {
+	im.ui.OpenModalSelector("Login method", items, func(item ui.AutocompleteItem) {
 		switch item.Value {
 		case "api-key":
 			im.showProviderSelector("Login provider", "login")
@@ -2704,15 +1510,15 @@ func (im *InteractiveMode) showOAuthProviderSelector() {
 		im.addSystemMessage("No OAuth providers are registered.")
 		return
 	}
-	items := make([]autocompleteItem, 0, len(options))
+	items := make([]ui.AutocompleteItem, 0, len(options))
 	for _, option := range options {
-		items = append(items, autocompleteItem{
+		items = append(items, ui.AutocompleteItem{
 			Value:       string(option.ProviderID),
 			Label:       option.Name,
 			Description: option.Description,
 		})
 	}
-	im.ui.OpenModalSelector("OAuth provider", items, func(item autocompleteItem) {
+	im.ui.OpenModalSelector("OAuth provider", items, func(item ui.AutocompleteItem) {
 		provider := ai.OAuthProviderFactory(ai.OAuthProviderID(item.Value))
 		if provider == nil || provider.AuthInfo() == nil {
 			im.addSystemMessage(fmt.Sprintf("OAuth provider %s is not available.", item.Value))
@@ -2844,9 +1650,9 @@ func (im *InteractiveMode) handleModelCommand(args []string) {
 }
 
 func (im *InteractiveMode) showProviderSelector(title, mode string) {
-	items := make([]autocompleteItem, 0)
+	items := make([]ui.AutocompleteItem, 0)
 	for _, provider := range im.availableProviderNames() {
-		items = append(items, autocompleteItem{
+		items = append(items, ui.AutocompleteItem{
 			Value:       provider,
 			Label:       provider,
 			Description: "provider",
@@ -2856,7 +1662,7 @@ func (im *InteractiveMode) showProviderSelector(title, mode string) {
 		im.addSystemMessage("No providers are available.")
 		return
 	}
-	im.ui.OpenModalSelector(title, items, func(item autocompleteItem) {
+	im.ui.OpenModalSelector(title, items, func(item ui.AutocompleteItem) {
 		switch mode {
 		case "login":
 			im.handleLoginCommand([]string{item.Value})
@@ -2870,8 +1676,8 @@ func (im *InteractiveMode) showProviderSelector(title, mode string) {
 
 func (im *InteractiveMode) showModelSelector(query string) {
 	query = strings.ToLower(query)
-	items := make([]autocompleteItem, 0)
-	noAuthItems := make([]autocompleteItem, 0)
+	items := make([]ui.AutocompleteItem, 0)
+	noAuthItems := make([]ui.AutocompleteItem, 0)
 	for _, model := range ai.DefaultModels() {
 		value := string(model.Provider) + "/" + model.Name
 		haystack := strings.ToLower(value)
@@ -2879,7 +1685,7 @@ func (im *InteractiveMode) showModelSelector(query string) {
 			continue
 		}
 		hasAuth := providerHasAuth(model.Provider, im.config.AuthStorage, im.config.OAuthStore)
-		item := autocompleteItem{
+		item := ui.AutocompleteItem{
 			Value:       value,
 			Label:       model.Name,
 			Description: string(model.Provider),
@@ -2915,7 +1721,7 @@ func (im *InteractiveMode) showModelSelector(query string) {
 		}
 	}
 
-	im.ui.OpenModalSelector("Select model", items, func(item autocompleteItem) {
+	im.ui.OpenModalSelector("Select model", items, func(item ui.AutocompleteItem) {
 		for _, model := range ai.DefaultModels() {
 			if item.Value == string(model.Provider)+"/"+model.Name {
 				im.selectModel(model)
@@ -2941,29 +1747,29 @@ func (im *InteractiveMode) selectModel(model ai.ModelDefinition) {
 	im.config.Provider = model.Provider
 	im.config.APIKey = resolveAPIKey(im.config.Model, im.config.AuthStorage)
 	im.ui.SetModel(model.Name, string(model.Provider))
-	im.ui.SetTokenCount(im.ui.tokenCount, model.ContextWindow)
+	im.ui.SetTokenCount(im.ui.TokenCount, model.ContextWindow)
 	im.ui.SetStatus(im.statusText(""))
 	im.addSystemMessage(fmt.Sprintf("Selected model: %s/%s", model.Provider, model.Name))
 }
 
 func (im *InteractiveMode) showCommandList() {
 	var lines []string
-	lines = append(lines, fmt.Sprintf("  %s  %s", im.ui.theme.Accent("/login"), im.ui.theme.Muted("Set up a provider or API key")))
-	lines = append(lines, fmt.Sprintf("  %s  %s", im.ui.theme.Accent("/logout"), im.ui.theme.Muted("Remove stored credentials")))
-	lines = append(lines, fmt.Sprintf("  %s  %s", im.ui.theme.Accent("/model"), im.ui.theme.Muted("Select a model")))
-	lines = append(lines, fmt.Sprintf("  %s  %s", im.ui.theme.Accent("/settings"), im.ui.theme.Muted("Open settings")))
-	lines = append(lines, fmt.Sprintf("  %s  %s", im.ui.theme.Accent("/theme"), im.ui.theme.Muted("Select a theme")))
-	lines = append(lines, fmt.Sprintf("  %s  %s", im.ui.theme.Accent("/new"), im.ui.theme.Muted("Start a new session")))
-	lines = append(lines, fmt.Sprintf("  %s  %s", im.ui.theme.Accent("/resume"), im.ui.theme.Muted("Resume a previous session")))
-	lines = append(lines, fmt.Sprintf("  %s  %s", im.ui.theme.Accent("/fork"), im.ui.theme.Muted("Fork the current session")))
-	lines = append(lines, fmt.Sprintf("  %s  %s", im.ui.theme.Accent("/name"), im.ui.theme.Muted("Name the current session")))
-	lines = append(lines, fmt.Sprintf("  %s  %s", im.ui.theme.Accent("/copy"), im.ui.theme.Muted("Copy last assistant message")))
-	lines = append(lines, fmt.Sprintf("  %s  %s", im.ui.theme.Accent("/commands"), im.ui.theme.Muted("Show all commands")))
-	lines = append(lines, fmt.Sprintf("  %s  %s", im.ui.theme.Accent("/tools"), im.ui.theme.Muted("Show available tools")))
+	lines = append(lines, fmt.Sprintf("  %s  %s", im.ui.Theme.Accent("/login"), im.ui.Theme.Muted("Set up a provider or API key")))
+	lines = append(lines, fmt.Sprintf("  %s  %s", im.ui.Theme.Accent("/logout"), im.ui.Theme.Muted("Remove stored credentials")))
+	lines = append(lines, fmt.Sprintf("  %s  %s", im.ui.Theme.Accent("/model"), im.ui.Theme.Muted("Select a model")))
+	lines = append(lines, fmt.Sprintf("  %s  %s", im.ui.Theme.Accent("/settings"), im.ui.Theme.Muted("Open settings")))
+	lines = append(lines, fmt.Sprintf("  %s  %s", im.ui.Theme.Accent("/theme"), im.ui.Theme.Muted("Select a theme")))
+	lines = append(lines, fmt.Sprintf("  %s  %s", im.ui.Theme.Accent("/new"), im.ui.Theme.Muted("Start a new session")))
+	lines = append(lines, fmt.Sprintf("  %s  %s", im.ui.Theme.Accent("/resume"), im.ui.Theme.Muted("Resume a previous session")))
+	lines = append(lines, fmt.Sprintf("  %s  %s", im.ui.Theme.Accent("/fork"), im.ui.Theme.Muted("Fork the current session")))
+	lines = append(lines, fmt.Sprintf("  %s  %s", im.ui.Theme.Accent("/name"), im.ui.Theme.Muted("Name the current session")))
+	lines = append(lines, fmt.Sprintf("  %s  %s", im.ui.Theme.Accent("/copy"), im.ui.Theme.Muted("Copy last assistant message")))
+	lines = append(lines, fmt.Sprintf("  %s  %s", im.ui.Theme.Accent("/commands"), im.ui.Theme.Muted("Show all commands")))
+	lines = append(lines, fmt.Sprintf("  %s  %s", im.ui.Theme.Accent("/tools"), im.ui.Theme.Muted("Show available tools")))
 
 	// Add extension slash commands
 	for _, cmd := range im.extRuntime.GetSlashCommands() {
-		lines = append(lines, fmt.Sprintf("  %s  %s", im.ui.theme.Accent("/"+cmd.Name), im.ui.theme.Muted(cmd.Description)))
+		lines = append(lines, fmt.Sprintf("  %s  %s", im.ui.Theme.Accent("/"+cmd.Name), im.ui.Theme.Muted(cmd.Description)))
 	}
 
 	im.ui.OpenModalInfo("📋 Slash Commands", lines, nil)
@@ -2992,7 +1798,7 @@ func (im *InteractiveMode) isKnownProvider(provider string) bool {
 	return false
 }
 
-func (im *InteractiveMode) autocomplete(text string, cursor int) []autocompleteItem {
+func (im *InteractiveMode) autocomplete(text string, cursor int) []ui.AutocompleteItem {
 	if cursor < 0 {
 		cursor = 0
 	}
@@ -3033,9 +1839,9 @@ func (im *InteractiveMode) autocomplete(text string, cursor int) []autocompleteI
 	}
 }
 
-func (im *InteractiveMode) commandAutocomplete(prefix string) []autocompleteItem {
+func (im *InteractiveMode) commandAutocomplete(prefix string) []ui.AutocompleteItem {
 	prefix = strings.ToLower(prefix)
-	var items []autocompleteItem
+	var items []ui.AutocompleteItem
 	seen := make(map[string]bool)
 	if im.slashCommands != nil {
 		for _, cmd := range im.slashCommands.List() {
@@ -3046,14 +1852,14 @@ func (im *InteractiveMode) commandAutocomplete(prefix string) []autocompleteItem
 				continue
 			}
 			seen[cmd.Name] = true
-			items = append(items, autocompleteItem{
+			items = append(items, ui.AutocompleteItem{
 				Value:       "/" + cmd.Name,
 				Label:       "/" + cmd.Name,
 				Description: cmd.Description,
 			})
 		}
 	}
-	for _, cmd := range []autocompleteItem{
+	for _, cmd := range []ui.AutocompleteItem{
 		{Value: "/tools", Label: "/tools", Description: "Show available agent tools"},
 		{Value: "/commands", Label: "/commands", Description: "Show all registered commands"},
 	} {
@@ -3075,7 +1881,7 @@ func (im *InteractiveMode) commandAutocomplete(prefix string) []autocompleteItem
 			continue
 		}
 		seen[cmd.Name] = true
-		items = append(items, autocompleteItem{
+		items = append(items, ui.AutocompleteItem{
 			Value:       "/" + cmd.Name,
 			Label:       "/" + cmd.Name,
 			Description: cmd.Description,
@@ -3084,9 +1890,9 @@ func (im *InteractiveMode) commandAutocomplete(prefix string) []autocompleteItem
 	return items
 }
 
-func (im *InteractiveMode) modelAutocomplete(cmd, prefix string) []autocompleteItem {
+func (im *InteractiveMode) modelAutocomplete(cmd, prefix string) []ui.AutocompleteItem {
 	prefix = strings.ToLower(prefix)
-	var items []autocompleteItem
+	var items []ui.AutocompleteItem
 	for _, model := range ai.DefaultModels() {
 		value := "/" + cmd + " " + model.Name
 		haystack := strings.ToLower(string(model.Provider) + " " + model.Name)
@@ -3097,7 +1903,7 @@ func (im *InteractiveMode) modelAutocomplete(cmd, prefix string) []autocompleteI
 		if !providerHasAuth(model.Provider, im.config.AuthStorage, im.config.OAuthStore) {
 			desc += " (no API key)"
 		}
-		items = append(items, autocompleteItem{
+		items = append(items, ui.AutocompleteItem{
 			Value:       value,
 			Label:       model.Name,
 			Description: desc,
@@ -3106,14 +1912,14 @@ func (im *InteractiveMode) modelAutocomplete(cmd, prefix string) []autocompleteI
 	return items
 }
 
-func (im *InteractiveMode) providerAutocomplete(cmd, prefix string) []autocompleteItem {
+func (im *InteractiveMode) providerAutocomplete(cmd, prefix string) []ui.AutocompleteItem {
 	prefix = strings.ToLower(prefix)
-	var items []autocompleteItem
+	var items []ui.AutocompleteItem
 	for _, provider := range im.availableProviderNames() {
 		if prefix != "" && !strings.Contains(strings.ToLower(provider), prefix) {
 			continue
 		}
-		items = append(items, autocompleteItem{
+		items = append(items, ui.AutocompleteItem{
 			Value:       "/" + cmd + " " + provider,
 			Label:       provider,
 			Description: "provider",
@@ -3131,7 +1937,7 @@ func (im *InteractiveMode) addSystemMessage(content string) {
 	})
 	// Show brief messages as a toast overlay
 	if len(content) < 80 && !strings.Contains(content, "\n") {
-		im.ui.showToast(content)
+		im.ui.ShowToast(content)
 	}
 }
 
@@ -3168,12 +1974,56 @@ func (im *InteractiveMode) statusText(activity string) string {
 }
 
 func (im *InteractiveMode) runAgent(ctx context.Context, prompt string, turnMessages []agent.AgentMessage) (*agent.AgentMessage, []agent.AgentMessage, error) {
+	// Create compacter for context compaction
+	compacter := compaction.NewCompacter(compaction.DefaultCompactionSettings())
+
 	loop := agent.NewAgentLoop(agent.AgentLoopConfig{
 		Model:             im.config.Model,
 		SystemPrompt:      im.config.SystemPrompt,
 		APIKey:            im.config.APIKey,
 		ToolExecutionMode: agent.ToolExecutionSequential,
 		Signal:            ctx,
+		BeforeProviderRequest: func(ctx ai.Context) (ai.Context, error) {
+			if im.extRuntime != nil {
+				result, err := im.extRuntime.FireBeforeProviderRequest(im.extCtx, extensions.BeforeProviderRequestEvent{
+					Payload: ctx,
+				})
+				if err == nil && result != nil {
+					if modifiedCtx, ok := result.(ai.Context); ok {
+						return modifiedCtx, nil
+					}
+				}
+			}
+			return ctx, nil
+		},
+		CompactFn: func(messages []agent.AgentMessage) ([]agent.AgentMessage, error) {
+			compactMsgs := make([]compaction.Message, len(messages))
+			for i, m := range messages {
+				compactMsgs[i] = compaction.Message{
+					Role:    string(m.Role),
+					Content: m.Content,
+				}
+			}
+			if !compacter.ShouldCompactWith(compactMsgs, 100000) {
+				return messages, nil
+			}
+			cutPoint := compaction.FindCutPoint(compactMsgs, 100000, compaction.DefaultCompactionSettings())
+			if cutPoint == nil {
+				return messages, nil
+			}
+			result, err := compaction.Compact(compactMsgs, cutPoint, nil)
+			if err != nil {
+				return messages, nil
+			}
+			newMsgs := make([]agent.AgentMessage, len(result.Messages))
+			for i, m := range result.Messages {
+				newMsgs[i] = agent.AgentMessage{
+					Role:    ai.Role(m.Role),
+					Content: m.Content,
+				}
+			}
+			return newMsgs, nil
+		},
 	})
 
 	// Apply extension hooks to the agent loop
@@ -3300,15 +2150,15 @@ func (im *InteractiveMode) handleCustomMessage(msg tea.Msg) {
 		im.applyAgentLoopFinal(m.Message)
 
 	case uiSelectRequestMsg:
-		items := make([]autocompleteItem, 0, len(m.Options))
+		items := make([]ui.AutocompleteItem, 0, len(m.Options))
 		for _, option := range m.Options {
-			items = append(items, autocompleteItem{Value: option, Label: option})
+			items = append(items, ui.AutocompleteItem{Value: option, Label: option})
 		}
 		if len(items) == 0 {
 			m.Resp <- uiStringResponse{Err: errors.New("no options available")}
 			return
 		}
-		im.ui.OpenModalSelector(m.Title, items, func(item autocompleteItem) {
+		im.ui.OpenModalSelector(m.Title, items, func(item ui.AutocompleteItem) {
 			m.Resp <- uiStringResponse{Value: item.Value}
 		}, func() {
 			m.Resp <- uiStringResponse{Err: errors.New("selection cancelled")}
@@ -3526,7 +2376,7 @@ func (im *InteractiveMode) startOAuthLogin(providerID ai.OAuthProviderID) {
 			if im.canSendUI() {
 				im.program.Send(uiClosePromptMsg{})
 			} else {
-				im.ui.closeModal()
+				im.ui.CloseModal()
 			}
 			go im.exchangeAndStoreOAuthCode(providerID, code, pkce)
 		})

@@ -10,21 +10,21 @@ import (
 func TestParseSkillFileWithFrontmatter(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "test.md")
-	os.WriteFile(path, []byte("---\nname: My Skill\ndescription: A test\n---\nBody text"), 0644)
+	os.WriteFile(path, []byte("---\nname: test-skill\ndescription: A test skill\n---\nBody text"), 0644)
 
 	skill, err := parseSkillFile(path)
 	if err != nil {
 		t.Fatalf("err: %v", err)
 	}
-	if skill.Name != "My Skill" {
-		t.Errorf("expected 'My Skill', got '%s'", skill.Name)
+	if skill.Name != "test-skill" {
+		t.Errorf("expected 'test-skill', got '%s'", skill.Name)
 	}
 }
 
 func TestParseSkillFileNoFrontmatter(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "simple.md")
-	os.WriteFile(path, []byte("Just text"), 0644)
+	os.WriteFile(path, []byte("---\nname: simple\ndescription: No frontmatter skill\n---\nJust text"), 0644)
 
 	skill, err := parseSkillFile(path)
 	if err != nil {
@@ -37,8 +37,8 @@ func TestParseSkillFileNoFrontmatter(t *testing.T) {
 
 func TestLoadSkillsFromDir(t *testing.T) {
 	dir := t.TempDir()
-	os.WriteFile(filepath.Join(dir, "a.md"), []byte("---\nname: A\n---\nA"), 0644)
-	os.WriteFile(filepath.Join(dir, "b.md"), []byte("---\nname: B\n---\nB"), 0644)
+	os.WriteFile(filepath.Join(dir, "a.md"), []byte("---\nname: a\ndescription: Skill A\n---\nA"), 0644)
+	os.WriteFile(filepath.Join(dir, "b.md"), []byte("---\nname: b\ndescription: Skill B\n---\nB"), 0644)
 	r := LoadSkillsFromDir(dir)
 	if len(r.Loaded) != 2 {
 		t.Errorf("expected 2, got %d", len(r.Loaded))
@@ -96,8 +96,8 @@ func TestAllTags(t *testing.T) {
 
 func TestLoadSkills(t *testing.T) {
 	d1, d2 := t.TempDir(), t.TempDir()
-	os.WriteFile(filepath.Join(d1, "a.md"), []byte("---\nname: A\n---\nA"), 0644)
-	os.WriteFile(filepath.Join(d2, "b.md"), []byte("---\nname: B\n---\nB"), 0644)
+	os.WriteFile(filepath.Join(d1, "a.md"), []byte("---\nname: a\ndescription: Skill A\n---\nA"), 0644)
+	os.WriteFile(filepath.Join(d2, "b.md"), []byte("---\nname: b\ndescription: Skill B\n---\nB"), 0644)
 	r := LoadSkills([]string{d1, d2})
 	if len(r.Loaded) != 2 {
 		t.Errorf("expected 2, got %d", len(r.Loaded))

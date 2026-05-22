@@ -1,0 +1,17 @@
+id = "rho.inline-bash"
+name = "Inline Bash Extension"
+version = "1.0.0"
+description = "Quick inline command execution with output capture."
+
+[entry]
+command = "./inline-bash"
+
+[capabilities]
+tools = true
+commands = false
+skills = false
+prompts = false
+
+[[tools]]
+id = "run"
+description = "Run a quick inline command and capture its output."

@@ -1,0 +1,21 @@
+id = "rho.permission-gate"
+name = "Permission Gate Extension"
+version = "1.0.0"
+description = "Prompts for confirmation before running dangerous bash commands."
+
+[entry]
+command = "./permission-gate"
+
+[capabilities]
+tools = true
+commands = true
+skills = false
+prompts = false
+
+[[tools]]
+id = "check_dangerous"
+description = "Check if a bash command matches any known dangerous patterns (rm -rf, sudo, chmod 777, etc.). If dangerous, prompts the user for confirmation."
+
+[[commands]]
+id = "allow-dangerous"
+description = "Confirm and allow a dangerous command to run."

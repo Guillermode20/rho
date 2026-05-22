@@ -117,8 +117,8 @@ type CreateAgentSessionServicesResult struct {
 
 // CreateAgentSessionFromServices creates a session using the services.
 func (s *AgentSessionServices) CreateAgentSessionFromServices(opts CreateAgentSessionOptions) (*CreateAgentSessionServicesResult, error) {
-	sdk := NewSDK()
-	result, err := sdk.CreateAgentSession(opts)
+	builder := NewSessionBuilder()
+	result, err := builder.CreateAgentSession(opts)
 	if err != nil {
 		return nil, err
 	}

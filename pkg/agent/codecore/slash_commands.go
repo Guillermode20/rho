@@ -469,7 +469,7 @@ func (m *SlashCommandManager) registerBuiltins() {
 		Usage:       "/cost",
 		Category:    "session",
 		Handler: func(ctx SlashCommandContext, args []string) error {
-			ctx.Notify("Token usage and cost information", "info")
+			ctx.Notify("Token usage and cost tracking will be shown here when available.", "info")
 			return nil
 		},
 	})
@@ -480,7 +480,7 @@ func (m *SlashCommandManager) registerBuiltins() {
 		Usage:       "/context",
 		Category:    "session",
 		Handler: func(ctx SlashCommandContext, args []string) error {
-			ctx.Notify("Context usage info", "info")
+			ctx.Notify("Context usage tracking will be shown here when available.", "info")
 			return nil
 		},
 	})

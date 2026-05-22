@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"regexp"
 	"sort"
 	"strings"
 )
@@ -192,13 +193,7 @@ func (s *PromptTemplateStore) ListByCategory(category string) []*PromptTemplate 
 // FormatTemplate renders a template with variable substitution.
 // Variables are passed as a map. The template uses {{.Key}} syntax.
 func FormatTemplate(template *PromptTemplate, vars map[string]string) string {
-	result := template.Template
-	for key, val := range vars {
-		result = strings.ReplaceAll(result, "{{."+key+"}}", val)
-	}
-	// Remove any unresolved variables
-	result = removeUnresolved(result)
-	return result
+	return FormatTemplateString(template.Template, vars)
 }
 
 // FormatTemplateString renders a template string with variables.
@@ -207,6 +202,59 @@ func FormatTemplateString(tpl string, vars map[string]string) string {
 	for key, val := range vars {
 		result = strings.ReplaceAll(result, "{{."+key+"}}", val)
 	}
+	result = removeUnresolved(result)
+	return result
+}
+
+var (
+	unresolvedSliceRegex = regexp.MustCompile(`\$\{@:\d+(:\d+)?\}`)
+	unresolvedPosRegex   = regexp.MustCompile(`\$\d+`)
+)
+
+// FormatTemplateWithArgs renders a template with both named variables and
+// bash-style positional arguments ($1, $2, ..., $@, $ARGUMENTS, ${@:N}, ${@:N:L}).
+func FormatTemplateWithArgs(tpl string, vars map[string]string, args []string) string {
+	result := tpl
+
+	// Substitute named variables
+	for key, val := range vars {
+		result = strings.ReplaceAll(result, "{{."+key+"}}", val)
+	}
+
+	// Substitute $@ and $ARGUMENTS (all args joined by space)
+	allArgs := strings.Join(args, " ")
+	result = strings.ReplaceAll(result, "$@", allArgs)
+	result = strings.ReplaceAll(result, "$ARGUMENTS", allArgs)
+
+	// Substitute ${@:N} and ${@:N:L} (slicing)
+	for n := 1; n <= len(args); n++ {
+		// ${@:N} — all args from position N (1-indexed)
+		marker := fmt.Sprintf("${@:%d}", n)
+		if n <= len(args) {
+			slice := strings.Join(args[n-1:], " ")
+			result = strings.ReplaceAll(result, marker, slice)
+		}
+
+		// ${@:N:L} — L args starting at position N
+		for l := 1; l <= len(args)-n+1; l++ {
+			marker = fmt.Sprintf("${@:%d:%d}", n, l)
+			slice := strings.Join(args[n-1:n-1+l], " ")
+			result = strings.ReplaceAll(result, marker, slice)
+		}
+	}
+
+	// Substitute $1, $2, ... $N individual positional args
+	// Replace in descending order so $10 is matched before $1
+	for i := len(args) - 1; i >= 0; i-- {
+		arg := args[i]
+		marker := fmt.Sprintf("$%d", i+1)
+		result = strings.ReplaceAll(result, marker, arg)
+	}
+
+	// Clean up unresolved positional placeholders
+	result = unresolvedSliceRegex.ReplaceAllString(result, "")
+	result = unresolvedPosRegex.ReplaceAllString(result, "")
+
 	result = removeUnresolved(result)
 	return result
 }
